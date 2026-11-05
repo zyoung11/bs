@@ -3,15 +3,26 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-out="${1:-dist}"
-rm -rf "$out"
-mkdir -p "$out"
+pack() {
+  local dir="$1"
+  local archive="$2"
+  rm -f "$archive"
+  (
+    cd "$dir"
+    7z a -tzip "../$archive" . >/dev/null
+  )
+}
 
-cp -r src/* "$out/"
-cp manifest.chrome.json "$out/manifest.json"
+rm -rf dist dist-firefox
+mkdir -p dist dist-firefox
 
-if [ "${2:-}" = "firefox" ]; then
-  cp manifest.firefox.json "$out/manifest.json"
-fi
+cp -r src/* dist/
+cp manifest.chrome.json dist/manifest.json
+pack dist bs.zip
 
-echo "built $out"
+cp -r src/* dist-firefox/
+cp manifest.firefox.json dist-firefox/manifest.json
+pack dist-firefox bs.xpi
+
+echo "built dist and dist-firefox"
+echo "packed bs.zip and bs.xpi"
