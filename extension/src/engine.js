@@ -1,0 +1,451 @@
+"use strict";
+
+const RoleNames = ["toolbar", "menu", "unfiled"];
+
+const RoleAlias = {
+  toolbar: ["书签栏", "书签工具栏", "工具栏", "bookmarks bar", "bookmarks toolbar", "toolbar"],
+  menu: ["书签菜单", "菜单", "bookmarks menu", "menu"],
+  unfiled: ["其他书签", "未分类书签", "未分类", "other bookmarks", "unsorted bookmarks"],
+};
+
+const RoleByLocalId = {
+  "1": "toolbar",
+  "2": "unfiled",
+  "toolbar_____": "toolbar",
+  "menu________": "menu",
+  "unfiled_____": "unfiled",
+};
+
+const PasswordFields = ["name", "url", "username", "password", "note"];
+
+let config = null;
+let idmap = { l2s: {}, s2l: {} };
+let snapshot = {};
+let progress = { bookmarks: { gen: 0, seq: 0 }, passwords: { gen: 0, seq: 0 } };
+let passwords = {};
+let ws = null;
+let wsDown = false;
+let diffTimer = null;
+let applying = 0;
+
+// init loads persisted state and starts the sync channel.
+async function init() {
+  config = await Store.get("bs_config", null);
+  idmap = await Store.get("bs_idmap", { l2s: {}, s2l: {} });
+  snapshot = await Store.get("bs_snapshot", {});
+  progress = await Store.get("bs_progress", { bookmarks: { gen: 0, seq: 0 }, passwords: { gen: 0, seq: 0 } });
+  passwords = await Store.get("bs_passwords", {});
+  if (!config) return;
+  BsApi.configure(config.url, config.token);
+  await resolveRoles();
+  wireEvents();
+  connect();
+  syncAll().catch(() => {});
+  api.alarms.create("bs-sync", { periodInMinutes: 1 });
+}
+
+// resolveRoles maps the browser root folders to the three sync roles.
+async function resolveRoles() {
+  const tree = await api.bookmarks.getTree();
+  const root = tree[0];
+  const roles = {};
+  for (const child of root.children ?? []) {
+    const role = RoleByLocalId[child.id];
+    if (role) roles[role] = child.id;
+  }
+  if (!roles.menu) {
+    const folder = await api.bookmarks.create({ parentId: root.id, title: "menu" });
+    roles.menu = folder.id;
+  }
+  for (const role of RoleNames) {
+    const syncId = "root:" + role;
+    idmap.s2l[syncId] = roles[role];
+    idmap.l2s[roles[role]] = syncId;
+  }
+  await Store.set("bs_idmap", idmap);
+}
+
+// connect opens the WebSocket and restarts it after a drop.
+function connect() {
+  ws = BsApi.openSocket(onSocketMessage, () => {
+    wsDown = true;
+    setTimeout(() => {
+      if (config) connect();
+    }, 5000);
+  });
+  ws.onopen = () => {
+    wsDown = false;
+    syncAll().catch(() => {});
+  };
+}
+
+// onSocketMessage applies pushed ops and reacts to resets.
+function onSocketMessage(raw) {
+  let msg;
+  try {
+    msg = JSON.parse(raw);
+  } catch {
+    return;
+  }
+  if (msg.type === "op") {
+    handleRemoteOp(msg.log, msg.entry);
+  } else if (msg.type === "reset") {
+    progress[msg.log].gen = 0;
+    syncLog(msg.log).catch(() => {});
+  }
+}
+
+// syncAll pulls both logs and reconciles the local mirror.
+async function syncAll() {
+  for (const log of ["bookmarks", "passwords"]) {
+    await syncLog(log);
+  }
+}
+
+// syncLog pulls the ops a log missed and applies them in order.
+async function syncLog(log) {
+  const res = await BsApi.pull(log, progress[log].seq);
+  if (res.gen !== progress[log].gen) {
+    await replayLocal(log);
+    return;
+  }
+  applying++;
+  try {
+    for (const entry of res.entries ?? []) {
+      if (entry.seq <= progress[log].seq) continue;
+      await applyEntry(log, entry);
+      progress[log].seq = entry.seq;
+    }
+    if (progress[log].seq < res.latest) progress[log].seq = res.latest;
+    progress[log].gen = res.gen;
+    await Store.set("bs_progress", progress);
+    if (log === "bookmarks") await refreshSnapshot();
+    if (log === "passwords") await Store.set("bs_passwords", passwords);
+  } finally {
+    applying--;
+  }
+}
+
+// replayLocal wipes the local mirror and rebuilds it from the log.
+async function replayLocal(log) {
+  applying++;
+  try {
+    await wipeLocal(log);
+    const res = await BsApi.pull(log, 0);
+    for (const entry of res.entries ?? []) {
+      await applyEntry(log, entry);
+      progress[log].seq = entry.seq;
+    }
+    progress[log].gen = res.gen;
+    if (progress[log].seq < res.latest) progress[log].seq = res.latest;
+    await Store.set("bs_progress", progress);
+    if (log === "bookmarks") await refreshSnapshot();
+    if (log === "passwords") await Store.set("bs_passwords", passwords);
+  } finally {
+    applying--;
+  }
+}
+
+// handleRemoteOp applies one pushed op and tracks the cursor.
+function handleRemoteOp(log, entry) {
+  if (!entry || entry.seq <= progress[log].seq) return;
+  if (entry.seq > progress[log].seq + 1) {
+    syncLog(log).catch(() => {});
+    return;
+  }
+  applying++;
+  applyEntry(log, entry)
+    .then(async () => {
+      progress[log].seq = entry.seq;
+      await Store.set("bs_progress", progress);
+      if (log === "bookmarks") await refreshSnapshot();
+      if (log === "passwords") await Store.set("bs_passwords", passwords);
+    })
+    .catch(() => {})
+    .finally(() => {
+      applying--;
+    });
+}
+
+// applyEntry decrypts one entry and dispatches it by log type.
+async function applyEntry(log, entry) {
+  const op = await BsCrypto.decrypt(config.keyRaw, entry.data);
+  if (log === "bookmarks") {
+    await applyBookmarkOp(op);
+  } else {
+    applyPasswordOp(op);
+  }
+}
+
+// applyBookmarkOp mutates the bookmark tree for one remote op.
+async function applyBookmarkOp(op) {
+  if (op.t === "c") {
+    const parentLocal = idmap.s2l[op.parent];
+    if (!parentLocal) return;
+    const params = { parentId: parentLocal, index: op.index, title: op.title };
+    if (op.type === "bookmark") params.url = op.url;
+    const created = await api.bookmarks.create(params).catch(() => null);
+    if (!created) return;
+    idmap.s2l[op.id] = created.id;
+    idmap.l2s[created.id] = op.id;
+    await Store.set("bs_idmap", idmap);
+    return;
+  }
+  const localId = idmap.s2l[op.id];
+  if (!localId) return;
+  if (op.t === "d") {
+    await api.bookmarks.removeTree(localId).catch(() => {});
+    delete idmap.s2l[op.id];
+    delete idmap.l2s[localId];
+    await Store.set("bs_idmap", idmap);
+    return;
+  }
+  if (op.t === "u") {
+    const params = { title: op.title };
+    if (op.type === "bookmark") params.url = op.url;
+    await api.bookmarks.update(localId, params).catch(() => {});
+    return;
+  }
+  if (op.t === "m") {
+    const parentLocal = idmap.s2l[op.parent];
+    if (!parentLocal) return;
+    await api.bookmarks.move(localId, { parentId: parentLocal, index: op.index }).catch(() => {});
+  }
+}
+
+// applyPasswordOp merges one remote password op into the local vault.
+function applyPasswordOp(op) {
+  if (op.t === "d") {
+    delete passwords[op.id];
+    return;
+  }
+  const entry = passwords[op.id] ?? {};
+  for (const field of PasswordFields) {
+    if (op[field] !== undefined) entry[field] = op[field];
+  }
+  entry.id = op.id;
+  passwords[op.id] = entry;
+}
+
+// wipeLocal clears the local mirror before a full replay.
+async function wipeLocal(log) {
+  if (log === "bookmarks") {
+    for (const role of RoleNames) {
+      const localRoot = idmap.s2l["root:" + role];
+      if (!localRoot) continue;
+      const children = await api.bookmarks.getChildren(localRoot).catch(() => []);
+      for (const child of children) {
+        await api.bookmarks.removeTree(child.id).catch(() => {});
+      }
+    }
+    const kept = { l2s: {}, s2l: {} };
+    for (const role of RoleNames) {
+      const syncId = "root:" + role;
+      kept.s2l[syncId] = idmap.s2l[syncId];
+      kept.l2s[idmap.s2l[syncId]] = syncId;
+    }
+    idmap = kept;
+    await Store.set("bs_idmap", idmap);
+    return;
+  }
+  passwords = {};
+  await Store.set("bs_passwords", passwords);
+}
+
+// collectNodes flattens the managed bookmark subtree into a node list.
+async function collectNodes() {
+  const out = [];
+  for (const role of RoleNames) {
+    const localRoot = idmap.s2l["root:" + role];
+    if (!localRoot) continue;
+    const children = await api.bookmarks.getChildren(localRoot).catch(() => []);
+    walkNodes(children, "root:" + role, out);
+  }
+  return out;
+}
+
+// walkNodes recurses one level of the bookmark tree.
+function walkNodes(nodes, parentSync, out) {
+  for (const node of nodes) {
+    const syncId = idmap.l2s[node.id] ?? null;
+    out.push({
+      localId: node.id,
+      syncId,
+      parent: parentSync,
+      index: node.index,
+      type: node.url ? "bookmark" : "folder",
+      title: node.title,
+      url: node.url ?? "",
+    });
+    if (node.children) {
+      walkNodes(node.children, syncId ?? parentSync, out);
+    }
+  }
+}
+
+// refreshSnapshot stores the current managed tree state for diffing.
+async function refreshSnapshot() {
+  const nodes = await collectNodes();
+  const next = {};
+  for (const node of nodes) {
+    if (!node.syncId) continue;
+    next[node.syncId] = {
+      parent: node.parent,
+      index: node.index,
+      type: node.type,
+      title: node.title,
+      url: node.url,
+    };
+  }
+  snapshot = next;
+  await Store.set("bs_snapshot", snapshot);
+}
+
+// scheduleDiff queues a bookmark diff with a short debounce.
+function scheduleDiff() {
+  clearTimeout(diffTimer);
+  diffTimer = setTimeout(() => diffAndPush().catch(() => {}), 300);
+}
+
+// diffAndPush turns local bookmark changes into encrypted ops.
+async function diffAndPush() {
+  if (applying > 0) {
+    scheduleDiff();
+    return;
+  }
+  const nodes = await collectNodes();
+  const current = {};
+  const creates = [];
+  const moves = [];
+  const updates = [];
+  for (const node of nodes) {
+    let syncId = node.syncId;
+    if (!syncId) {
+      syncId = crypto.randomUUID();
+      idmap.l2s[node.localId] = syncId;
+      idmap.s2l[syncId] = node.localId;
+    }
+    const state = { parent: node.parent, index: node.index, type: node.type, title: node.title, url: node.url };
+    current[syncId] = state;
+    const old = snapshot[syncId];
+    if (!old) {
+      creates.push({ t: "c", id: syncId, parent: node.parent, index: node.index, type: node.type, title: node.title, url: node.url });
+      continue;
+    }
+    if (old.title !== state.title || old.url !== state.url || old.type !== state.type) {
+      updates.push({ t: "u", id: syncId, type: state.type, title: state.title, url: state.url });
+    }
+    if (old.parent !== state.parent || old.index !== state.index) {
+      moves.push({ t: "m", id: syncId, parent: state.parent, index: state.index });
+    }
+  }
+  const deletes = [];
+  for (const syncId of Object.keys(snapshot)) {
+    if (!current[syncId]) {
+      deletes.push({ t: "d", id: syncId });
+    }
+  }
+  deletes.reverse();
+  const ops = [...deletes, ...creates, ...updates, ...moves];
+  await Store.set("bs_idmap", idmap);
+  snapshot = current;
+  await Store.set("bs_snapshot", snapshot);
+  if (ops.length === 0) return;
+  await pushOps("bookmarks", ops);
+}
+
+// pushOps encrypts ops and appends them to a log in chunks.
+async function pushOps(log, ops) {
+  const key = await BsCrypto.importKey(config.keyRaw);
+  for (let i = 0; i < ops.length; i += 500) {
+    const chunk = ops.slice(i, i + 500);
+    const entries = [];
+    for (const op of chunk) {
+      entries.push({ id: crypto.randomUUID(), data: await BsCrypto.encrypt(key, op) });
+    }
+    const res = await BsApi.push(log, entries);
+    progress[log].gen = res.gen;
+    if (res.latest > progress[log].seq) progress[log].seq = res.latest;
+  }
+  await Store.set("bs_progress", progress);
+}
+
+// wireEvents routes bookmark events into the diff queue.
+function wireEvents() {
+  api.bookmarks.onCreated.addListener(scheduleDiff);
+  api.bookmarks.onRemoved.addListener(scheduleDiff);
+  api.bookmarks.onChanged.addListener(scheduleDiff);
+  api.bookmarks.onMoved.addListener(scheduleDiff);
+  api.bookmarks.onChildrenReordered.addListener(scheduleDiff);
+}
+
+// runSetup stores the credentials and seeds or replays the local tree.
+async function runSetup(url, master, configToken) {
+  const derived = await BsCrypto.derive(master);
+  BsApi.configure(url, derived.token);
+  if (configToken) {
+    await BsApi.register(configToken, derived.token);
+  }
+  const probeBookmarks = await BsApi.pull("bookmarks", 0).catch((e) => {
+    throw new Error(e.status === 401 ? "认证失败：主密码错误或服务器未注册" : "无法连接服务器");
+  });
+  const probePasswords = await BsApi.pull("passwords", 0);
+  config = { url, keyRaw: derived.keyRaw, token: derived.token };
+  await Store.set("bs_config", config);
+  progress = {
+    bookmarks: { gen: probeBookmarks.gen, seq: 0 },
+    passwords: { gen: probePasswords.gen, seq: 0 },
+  };
+  await Store.set("bs_progress", progress);
+  await resolveRoles();
+  if (probeBookmarks.latest > 0) {
+    await replayLocal("bookmarks");
+  } else {
+    await diffAndPush();
+  }
+  if (probePasswords.latest > 0) {
+    await replayLocal("passwords");
+  }
+  connect();
+  return { ok: true };
+}
+
+// runImportBookmarks replaces the bookmark log with an HTML export.
+async function runImportBookmarks(text) {
+  const tree = parseBookmarksHtml(text);
+  const ops = buildImportOps(tree);
+  const res = await BsApi.reset("bookmarks");
+  progress.bookmarks = { gen: res.gen, seq: 0 };
+  await Store.set("bs_progress", progress);
+  await pushOps("bookmarks", ops);
+  await replayLocal("bookmarks");
+  return { count: ops.length };
+}
+
+// runImportPasswords replaces the password log with a CSV export.
+async function runImportPasswords(text) {
+  const rows = parsePasswordsCsv(text);
+  const res = await BsApi.reset("passwords");
+  progress.passwords = { gen: res.gen, seq: 0 };
+  await Store.set("bs_progress", progress);
+  const ops = rows.map((row) => ({ t: "c", id: crypto.randomUUID(), ...row }));
+  await pushOps("passwords", ops);
+  await replayLocal("passwords");
+  return { count: ops.length };
+}
+
+// changePassword pushes one password vault mutation.
+async function changePassword(action, entry) {
+  if (action === "delete") {
+    await pushOps("passwords", [{ t: "d", id: entry.id }]);
+    delete passwords[entry.id];
+  } else {
+    const id = entry.id ?? crypto.randomUUID();
+    const op = { t: action === "update" ? "u" : "c", id };
+    for (const field of PasswordFields) op[field] = entry[field] ?? "";
+    await pushOps("passwords", [op]);
+    passwords[id] = { ...op, id };
+  }
+  await Store.set("bs_passwords", passwords);
+  return { ok: true };
+}

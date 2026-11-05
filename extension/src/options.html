@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>bs sync</title>
+<style>
+  body { font-family: sans-serif; margin: 24px; max-width: 640px; }
+  h2 { margin-top: 32px; font-size: 16px; }
+  label { display: block; margin: 8px 0 2px; font-size: 13px; color: #555; }
+  input { width: 100%; padding: 6px; box-sizing: border-box; }
+  button { margin-top: 12px; padding: 6px 16px; }
+  .row { margin-bottom: 8px; }
+  .msg { margin-top: 8px; font-size: 13px; }
+  .ok { color: #1a7f37; }
+  .err { color: #b42318; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #ddd; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+  <h1>bs sync</h1>
+
+  <h2>状态</h2>
+  <div id="status" class="msg">加载中</div>
+
+  <h2>初始化</h2>
+  <div class="row">
+    <label>服务器地址</label>
+    <input id="url" placeholder="http://192.168.100.2:8000">
+  </div>
+  <div class="row">
+    <label>主密码（派生加密密钥和认证令牌）</label>
+    <input id="master" type="password">
+  </div>
+  <div class="row">
+    <label>config token（仅首次注册需要，bs 启动时打印）</label>
+    <input id="configToken" type="password">
+  </div>
+  <button id="setup">保存并连接</button>
+  <div id="setupMsg" class="msg"></div>
+
+  <h2>导入书签（HTML）</h2>
+  <div class="row">
+    <input id="htmlFile" type="file" accept=".html,.htm">
+  </div>
+  <button id="importHtml">导入并替代书签日志</button>
+  <div id="htmlMsg" class="msg"></div>
+
+  <h2>导入密码（CSV）</h2>
+  <div class="row">
+    <input id="csvFile" type="file" accept=".csv">
+  </div>
+  <button id="importCsv">导入并替代密码日志</button>
+  <div id="csvMsg" class="msg"></div>
+
+  <h2>密码条目</h2>
+  <div class="row">
+    <input id="pwName" placeholder="名称">
+  </div>
+  <div class="row">
+    <input id="pwUrl" placeholder="网址">
+  </div>
+  <div class="row">
+    <input id="pwUser" placeholder="用户名">
+  </div>
+  <div class="row">
+    <input id="pwPass" type="password" placeholder="密码">
+  </div>
+  <button id="pwAdd">添加</button>
+  <div id="pwMsg" class="msg"></div>
+  <table id="pwTable" class="hidden">
+    <thead>
+      <tr><th>名称</th><th>网址</th><th>用户名</th><th>密码</th><th></th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <script src="state.js"></script>
+  <script src="crypto.js"></script>
+  <script src="api.js"></script>
+  <script src="import.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

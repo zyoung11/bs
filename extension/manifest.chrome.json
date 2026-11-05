@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "bs sync",
+  "version": "0.1.0",
+  "description": "Sync bookmarks and passwords through a bs server",
+  "permissions": ["bookmarks", "storage", "alarms", "unlimitedStorage"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "bs sync"
+  },
+  "options_page": "options.html",
+  "minimum_chrome_version": "116"
+}
