@@ -1,14 +1,14 @@
 {
   "manifest_version": 3,
   "name": "bs sync",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Sync bookmarks and passwords through a bs server",
   "permissions": ["bookmarks", "storage", "alarms", "unlimitedStorage"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "content_scripts": [
     {
       "matches": ["http://*/*", "https://*/*"],
-      "js": ["totp.js", "content.js"],
+      "js": ["totp.js", "content.js", "save.js"],
       "run_at": "document_idle",
       "all_frames": true
     }

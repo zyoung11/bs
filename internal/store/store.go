@@ -9,7 +9,7 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-var logNames = []string{"bookmarks", "passwords"}
+var logNames = []string{"bookmarks", "passwords", "settings"}
 
 var metaBucket = []byte("meta")
 

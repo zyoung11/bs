@@ -221,6 +221,13 @@
 
   .hidden { display: none; }
 
+  .never-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+  }
+
   .link-btn {
     background: none;
     border: none;
@@ -314,6 +321,11 @@
         <input id="csvFile" type="file" accept=".csv">
       </div>
       <div id="csvMsg" class="msg"></div>
+    </div>
+
+    <div class="panel">
+      <span class="label">Never Save · 不再提示</span>
+      <div id="neverList"></div>
     </div>
 
   </div>

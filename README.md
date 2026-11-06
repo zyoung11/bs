@@ -1,7 +1,7 @@
 # bs
 
 Self-hosted sync for browser bookmarks and passwords. A single Go binary
-(`bs`) stores an append-only operation log, and a browser extension syncs
+(`bs`) stores append-only operation logs, and a browser extension syncs
 Chrome and Firefox against it. Data is end-to-end encrypted.
 
 ### Features
@@ -9,6 +9,10 @@ Chrome and Firefox against it. Data is end-to-end encrypted.
 - Bookmark sync: the full bookmark tree under the toolbar and other-bookmarks
   roots mirrors across machines. Create, delete, rename and move all propagate.
 - Password sync: login, credit card and identity entries, kept in one vault.
+- Save prompt: submitting a login or sign-up form asks to save the credential,
+  or to update it when the password changed. A site can be muted with
+  never-save; the list syncs across machines and is managed on the settings
+  page.
 - Autofill: click a login, card or identity field and candidates appear below
   the input. Works inside cross-origin iframes. Keyboard navigation included.
 - TOTP: a stored one-time-password secret renders a current code on fill and

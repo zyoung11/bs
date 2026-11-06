@@ -6,8 +6,8 @@ if (typeof importScripts === "function") {
 
 init().catch((e) => console.error("bs init failed:", e));
 
-api.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  handleRequest(msg)
+api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  handleRequest(msg, sender)
     .then((data) => sendResponse({ ok: true, data }))
     .catch((e) => sendResponse({ ok: false, error: String(e.message ?? e) }));
   return true;
@@ -21,8 +21,17 @@ api.alarms.onAlarm.addListener((alarm) => {
 });
 
 // handleRequest routes UI messages to the engine.
-async function handleRequest(msg) {
+async function handleRequest(msg, sender) {
   switch (msg.type) {
+    case "save-show": {
+      const tab = sender && sender.tab;
+      if (tab && tab.id !== undefined) {
+        await api.tabs
+          .sendMessage(tab.id, { type: "bs-save-show", p: msg.p }, { frameId: 0 })
+          .catch(() => {});
+      }
+      return null;
+    }
     case "setup":
       return runSetup(msg.url, msg.master, msg.configToken ?? "");
     case "probe":
@@ -46,6 +55,16 @@ async function handleRequest(msg) {
       return Object.values(passwords);
     case "matches":
       return matchEntries(msg.url, msg.kind);
+    case "save-check":
+      return checkSaveCandidate(msg.url, msg.username, msg.password);
+    case "save-login":
+      return saveLogin(msg.url, msg.username, msg.password, msg.id ?? "");
+    case "save-never":
+      return addNever(msg.url);
+    case "never-list":
+      return Object.keys(never);
+    case "never-remove":
+      return removeNever(msg.host);
     default:
       throw new Error("unknown request " + msg.type);
   }

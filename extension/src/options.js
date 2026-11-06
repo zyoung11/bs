@@ -136,6 +136,36 @@ $("csvFile").addEventListener("change", async () => {
   }
 });
 
+// renderNever lists the never-save sites, each with a remove button.
+async function renderNever() {
+  const hosts = await send({ type: "never-list" });
+  const box = $("neverList");
+  box.textContent = "";
+  if (hosts.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "note";
+    empty.textContent = "空。保存弹窗选「不再提示」的站点列在这里。";
+    box.appendChild(empty);
+    return;
+  }
+  for (const host of hosts.sort()) {
+    const row = document.createElement("div");
+    row.className = "field-row never-row";
+    const name = document.createElement("span");
+    name.textContent = host;
+    const btn = document.createElement("button");
+    btn.className = "link-btn";
+    btn.textContent = "移除";
+    btn.addEventListener("click", async () => {
+      await send({ type: "never-remove", host });
+      await renderNever();
+    });
+    row.append(name, btn);
+    box.appendChild(row);
+  }
+}
+
 render().catch((e) => {
   $("status").textContent = "状态读取失败：" + e.message;
 });
+renderNever().catch(() => {});

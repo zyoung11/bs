@@ -19,7 +19,7 @@ import (
 	"bs/internal/store"
 )
 
-const version = "0.1.0"
+const version = "0.1.1"
 
 const (
 	colorMauve  = "\x1b[38;2;198;160;246m"

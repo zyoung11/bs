@@ -25,6 +25,7 @@ let idmap = { l2s: {}, s2l: {} };
 let snapshot = {};
 let progress = { bookmarks: { gen: 0, seq: 0 }, passwords: { gen: 0, seq: 0 } };
 let passwords = {};
+let never = {};
 let ws = null;
 let wsDown = false;
 let diffTimer = null;
@@ -36,8 +37,10 @@ async function init() {
   config = await Store.get("bs_config", null);
   idmap = await Store.get("bs_idmap", { l2s: {}, s2l: {} });
   snapshot = await Store.get("bs_snapshot", {});
-  progress = await Store.get("bs_progress", { bookmarks: { gen: 0, seq: 0 }, passwords: { gen: 0, seq: 0 } });
+  progress = await Store.get("bs_progress", { bookmarks: { gen: 0, seq: 0 }, passwords: { gen: 0, seq: 0 }, settings: { gen: 0, seq: 0 } });
+  progress.settings ??= { gen: 0, seq: 0 };
   passwords = await Store.get("bs_passwords", {});
+  never = await Store.get("bs_never", {});
   wireEvents();
   api.alarms.create("bs-sync", { periodInMinutes: 1 });
   if (!config) return;
@@ -96,7 +99,7 @@ function onSocketMessage(raw) {
 
 // syncAll pulls both logs and reconciles the local mirror.
 async function syncAll() {
-  for (const log of ["bookmarks", "passwords"]) {
+  for (const log of ["bookmarks", "passwords", "settings"]) {
     await syncLog(log);
   }
 }
@@ -120,6 +123,7 @@ async function syncLog(log) {
     await Store.set("bs_progress", progress);
     if (log === "bookmarks") await refreshSnapshot();
     if (log === "passwords") await Store.set("bs_passwords", passwords);
+    if (log === "settings") await Store.set("bs_never", never);
   } finally {
     applying--;
   }
@@ -140,6 +144,7 @@ async function replayLocal(log) {
     await Store.set("bs_progress", progress);
     if (log === "bookmarks") await refreshSnapshot();
     if (log === "passwords") await Store.set("bs_passwords", passwords);
+    if (log === "settings") await Store.set("bs_never", never);
   } finally {
     applying--;
   }
@@ -168,6 +173,7 @@ function handleRemoteOp(log, entry) {
       await Store.set("bs_progress", progress);
       if (log === "bookmarks") await refreshSnapshot();
       if (log === "passwords") await Store.set("bs_passwords", passwords);
+      if (log === "settings") await Store.set("bs_never", never);
     })
     .catch(() => {})
     .finally(() => {
@@ -180,6 +186,8 @@ async function applyEntry(log, entry) {
   const op = await BsCrypto.decrypt(config.keyRaw, entry.data);
   if (log === "bookmarks") {
     await applyBookmarkOp(op);
+  } else if (log === "settings") {
+    applySettingsOp(op);
   } else {
     applyPasswordOp(op);
   }
@@ -221,6 +229,17 @@ async function applyBookmarkOp(op) {
   }
 }
 
+// applySettingsOp merges one remote settings op into the local state.
+function applySettingsOp(op) {
+  if (op.t === "never") {
+    never[op.host] = true;
+    return;
+  }
+  if (op.t === "unnever") {
+    delete never[op.host];
+  }
+}
+
 // applyPasswordOp merges one remote password op into the local vault.
 function applyPasswordOp(op) {
   if (op.t === "d") {
@@ -256,6 +275,11 @@ async function wipeLocal(log) {
     }
     idmap = kept;
     await Store.set("bs_idmap", idmap);
+    return;
+  }
+  if (log === "settings") {
+    never = {};
+    await Store.set("bs_never", never);
     return;
   }
   passwords = {};
@@ -415,8 +439,9 @@ async function resetConfig() {
   config = null;
   idmap = { l2s: {}, s2l: {} };
   snapshot = {};
-  progress = { bookmarks: { gen: 0, seq: 0 }, passwords: { gen: 0, seq: 0 } };
+  progress = { bookmarks: { gen: 0, seq: 0 }, passwords: { gen: 0, seq: 0 }, settings: { gen: 0, seq: 0 } };
   passwords = {};
+  never = {};
   applying = 0;
   if (ws) {
     ws.onclose = null;
@@ -429,6 +454,7 @@ async function resetConfig() {
   await Store.set("bs_snapshot", snapshot);
   await Store.set("bs_progress", progress);
   await Store.set("bs_passwords", passwords);
+  await Store.set("bs_never", never);
   return { ok: true };
 }
 
@@ -443,11 +469,13 @@ async function runSetup(url, master, configToken) {
     throw new Error(e.status === 401 ? "认证失败：主密码错误或服务器未注册" : "无法连接服务器");
   });
   const probePasswords = await BsApi.pull("passwords", 0);
+  const probeSettings = await BsApi.pull("settings", 0);
   config = { url, keyRaw: derived.keyRaw, token: derived.token };
   await Store.set("bs_config", config);
   progress = {
     bookmarks: { gen: probeBookmarks.gen, seq: 0 },
     passwords: { gen: probePasswords.gen, seq: 0 },
+    settings: { gen: probeSettings.gen, seq: 0 },
   };
   await Store.set("bs_progress", progress);
   await resolveRoles();
@@ -458,6 +486,9 @@ async function runSetup(url, master, configToken) {
   }
   if (probePasswords.latest > 0) {
     await replayLocal("passwords");
+  }
+  if (probeSettings.latest > 0) {
+    await replayLocal("settings");
   }
   connect();
   return { ok: true };
@@ -519,6 +550,63 @@ function sameSite(entryUrl, targetHost) {
 
 function baseDomain(host) {
   return host.split(".").slice(-2).join(".");
+}
+
+// checkSaveCandidate classifies a captured credential. It returns skip
+// when the site is ignored or the vault already holds the same secret,
+// update when an entry differs, and new otherwise.
+function checkSaveCandidate(url, username, password) {
+  if (!config) return { mode: "skip" };
+  const target = hostOf(url);
+  const host = baseDomain(target);
+  if (!host || never[host]) return { mode: "skip" };
+  for (const entry of Object.values(passwords)) {
+    if ((entry.type || "login") !== "login") continue;
+    if (hostOf(entry.url) && !sameSite(entry.url, target)) continue;
+    if ((entry.username || "") !== username) continue;
+    if (entry.password === password) return { mode: "skip" };
+    return { mode: "update", id: entry.id, old: entry.password };
+  }
+  return { mode: "new" };
+}
+
+// saveLogin stores a captured credential, updating the entry with the
+// given id or creating a new login entry named after its host.
+async function saveLogin(url, username, password, id) {
+  if (id && passwords[id]) {
+    const merged = { ...passwords[id], url, username, password };
+    return changePassword("update", merged);
+  }
+  return changePassword("create", {
+    name: hostOf(url) || username,
+    type: "login",
+    url,
+    username,
+    password,
+    note: "",
+    totp: "",
+  });
+}
+
+// addNever marks the base domain of url as never-save and syncs the
+// change through the settings log.
+async function addNever(url) {
+  const host = baseDomain(hostOf(url));
+  if (!host || never[host]) return { ok: true };
+  await pushOps("settings", [{ t: "never", host }]);
+  never[host] = true;
+  await Store.set("bs_never", never);
+  return { ok: true };
+}
+
+// removeNever drops one base domain from the never-save list and syncs
+// the change through the settings log.
+async function removeNever(host) {
+  if (!never[host]) return { ok: true };
+  await pushOps("settings", [{ t: "unnever", host }]);
+  delete never[host];
+  await Store.set("bs_never", never);
+  return { ok: true };
 }
 
 // changePassword pushes one password vault mutation.
