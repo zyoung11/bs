@@ -109,15 +109,20 @@ function buildImportOps(tree) {
   return ops;
 }
 
-// assignImportRoots places top level items into the three sync roots.
+// assignImportRoots places top level items into the sync roots.
+// Roots are built from RoleAlias so the set always tracks the roles.
 function assignImportRoots(tree) {
-  const roots = { "root:toolbar": [], "root:menu": [], "root:unfiled": [] };
+  const roots = {};
+  for (const role of Object.keys(RoleAlias)) {
+    roots["root:" + role] = [];
+  }
+  const fallback = roots["root:unfiled"] ?? roots[Object.keys(roots)[0]];
   for (const item of tree) {
     const role = item.type === "folder" ? matchRole(item.title) : null;
-    if (role) {
+    if (role && roots["root:" + role]) {
       for (const child of item.children) roots["root:" + role].push(child);
     } else {
-      roots["root:unfiled"].push(item);
+      fallback.push(item);
     }
   }
   return roots;

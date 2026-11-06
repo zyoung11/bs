@@ -1,10 +1,9 @@
 "use strict";
 
-const RoleNames = ["toolbar", "menu", "unfiled"];
+const RoleNames = ["toolbar", "unfiled"];
 
 const RoleAlias = {
   toolbar: ["书签栏", "书签工具栏", "工具栏", "bookmarks bar", "bookmarks toolbar", "toolbar"],
-  menu: ["书签菜单", "菜单", "bookmarks menu", "menu"],
   unfiled: ["其他书签", "未分类书签", "未分类", "other bookmarks", "unsorted bookmarks"],
 };
 
@@ -12,7 +11,6 @@ const RoleByLocalId = {
   "1": "toolbar",
   "2": "unfiled",
   "toolbar_____": "toolbar",
-  "menu________": "menu",
   "unfiled_____": "unfiled",
 };
 
@@ -31,6 +29,7 @@ let ws = null;
 let wsDown = false;
 let diffTimer = null;
 let applying = 0;
+let pushedIds = new Set();
 
 // init loads persisted state and starts the sync channel.
 async function init() {
@@ -48,7 +47,7 @@ async function init() {
   syncAll().catch(() => {});
 }
 
-// resolveRoles maps the browser root folders to the three sync roles.
+// resolveRoles maps the browser root folders to the two sync roles.
 async function resolveRoles() {
   const tree = await api.bookmarks.getTree();
   const root = tree[0];
@@ -57,32 +56,12 @@ async function resolveRoles() {
     const role = RoleByLocalId[child.id];
     if (role) roles[role] = child.id;
   }
-  if (!roles.menu) {
-    roles.menu = await findMenuFolder(roles.unfiled);
-  }
   for (const role of RoleNames) {
     const syncId = "root:" + role;
     idmap.s2l[syncId] = roles[role];
     idmap.l2s[roles[role]] = syncId;
   }
   await Store.set("bs_idmap", idmap);
-}
-
-// findMenuFolder reuses the previously mapped menu folder, or a folder
-// named menu under the unfiled root, and creates one there otherwise.
-// Chrome has no menu root and rejects new folders on the bookmark root.
-async function findMenuFolder(unfiled) {
-  const mapped = idmap.s2l["root:menu"];
-  if (mapped) {
-    const found = await api.bookmarks.get(mapped).catch(() => []);
-    if (found.length > 0) return mapped;
-  }
-  const children = await api.bookmarks.getChildren(unfiled).catch(() => []);
-  for (const child of children) {
-    if (!child.url && child.title === "menu") return child.id;
-  }
-  const folder = await api.bookmarks.create({ parentId: unfiled, title: "menu" });
-  return folder.id;
 }
 
 // connect opens the WebSocket and restarts it after a drop.
@@ -167,8 +146,17 @@ async function replayLocal(log) {
 }
 
 // handleRemoteOp applies one pushed op and tracks the cursor.
+// Entries we pushed ourselves come back as broadcast echoes and are
+// skipped by their recorded entry id, so a local change is never
+// re-applied as a remote one.
 function handleRemoteOp(log, entry) {
   if (!entry || entry.seq <= progress[log].seq) return;
+  if (pushedIds.has(entry.id)) {
+    pushedIds.delete(entry.id);
+    progress[log].seq = entry.seq;
+    Store.set("bs_progress", progress).catch(() => {});
+    return;
+  }
   if (entry.seq > progress[log].seq + 1) {
     syncLog(log).catch(() => {});
     return;
@@ -382,6 +370,18 @@ async function diffAndPush() {
   await pushOps("bookmarks", ops);
 }
 
+// rememberPush records a pushed entry id so its broadcast echo is skipped.
+// The set is bounded so a dropped echo cannot grow it without limit.
+function rememberPush(id) {
+  pushedIds.add(id);
+  if (pushedIds.size > 2000) {
+    for (const stale of pushedIds) {
+      pushedIds.delete(stale);
+      if (pushedIds.size <= 1000) break;
+    }
+  }
+}
+
 // pushOps encrypts ops and appends them to a log in chunks.
 async function pushOps(log, ops) {
   const key = await BsCrypto.importKey(config.keyRaw);
@@ -389,7 +389,9 @@ async function pushOps(log, ops) {
     const chunk = ops.slice(i, i + 500);
     const entries = [];
     for (const op of chunk) {
-      entries.push({ id: crypto.randomUUID(), data: await BsCrypto.encrypt(key, op) });
+      const entryId = crypto.randomUUID();
+      rememberPush(entryId);
+      entries.push({ id: entryId, data: await BsCrypto.encrypt(key, op) });
     }
     const res = await BsApi.push(log, entries);
     progress[log].gen = res.gen;
