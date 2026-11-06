@@ -16,7 +16,11 @@ const RoleByLocalId = {
   "unfiled_____": "unfiled",
 };
 
-const PasswordFields = ["name", "url", "username", "password", "note"];
+const PasswordFields = [
+  "name", "type", "url", "username", "password", "note", "totp",
+  "cardholder", "number", "exp", "cvv",
+  "fullName", "email", "phone", "address", "city", "zip", "country",
+];
 
 let config = null;
 let idmap = { l2s: {}, s2l: {} };
@@ -35,13 +39,13 @@ async function init() {
   snapshot = await Store.get("bs_snapshot", {});
   progress = await Store.get("bs_progress", { bookmarks: { gen: 0, seq: 0 }, passwords: { gen: 0, seq: 0 } });
   passwords = await Store.get("bs_passwords", {});
+  wireEvents();
+  api.alarms.create("bs-sync", { periodInMinutes: 1 });
   if (!config) return;
   BsApi.configure(config.url, config.token);
   await resolveRoles();
-  wireEvents();
   connect();
   syncAll().catch(() => {});
-  api.alarms.create("bs-sync", { periodInMinutes: 1 });
 }
 
 // resolveRoles maps the browser root folders to the three sync roles.
@@ -54,8 +58,7 @@ async function resolveRoles() {
     if (role) roles[role] = child.id;
   }
   if (!roles.menu) {
-    const folder = await api.bookmarks.create({ parentId: root.id, title: "menu" });
-    roles.menu = folder.id;
+    roles.menu = await findMenuFolder(roles.unfiled);
   }
   for (const role of RoleNames) {
     const syncId = "root:" + role;
@@ -63,6 +66,23 @@ async function resolveRoles() {
     idmap.l2s[roles[role]] = syncId;
   }
   await Store.set("bs_idmap", idmap);
+}
+
+// findMenuFolder reuses the previously mapped menu folder, or a folder
+// named menu under the unfiled root, and creates one there otherwise.
+// Chrome has no menu root and rejects new folders on the bookmark root.
+async function findMenuFolder(unfiled) {
+  const mapped = idmap.s2l["root:menu"];
+  if (mapped) {
+    const found = await api.bookmarks.get(mapped).catch(() => []);
+    if (found.length > 0) return mapped;
+  }
+  const children = await api.bookmarks.getChildren(unfiled).catch(() => []);
+  for (const child of children) {
+    if (!child.url && child.title === "menu") return child.id;
+  }
+  const folder = await api.bookmarks.create({ parentId: unfiled, title: "menu" });
+  return folder.id;
 }
 
 // connect opens the WebSocket and restarts it after a drop.
@@ -235,6 +255,8 @@ async function wipeLocal(log) {
       if (!localRoot) continue;
       const children = await api.bookmarks.getChildren(localRoot).catch(() => []);
       for (const child of children) {
+        const syncId = idmap.l2s[child.id];
+        if (syncId && syncId.startsWith("root:")) continue;
         await api.bookmarks.removeTree(child.id).catch(() => {});
       }
     }
@@ -253,21 +275,31 @@ async function wipeLocal(log) {
 }
 
 // collectNodes flattens the managed bookmark subtree into a node list.
-async function collectNodes() {
+// When assign is true every node without a sync id gets a fresh one so
+// that child nodes can reference their new parents.
+async function collectNodes(assign) {
   const out = [];
   for (const role of RoleNames) {
     const localRoot = idmap.s2l["root:" + role];
     if (!localRoot) continue;
-    const children = await api.bookmarks.getChildren(localRoot).catch(() => []);
-    walkNodes(children, "root:" + role, out);
+    const subs = await api.bookmarks.getSubTree(localRoot).catch(() => []);
+    if (subs.length === 0) continue;
+    walkNodes(subs[0].children ?? [], "root:" + role, out, assign);
   }
   return out;
 }
 
-// walkNodes recurses one level of the bookmark tree.
-function walkNodes(nodes, parentSync, out) {
+// walkNodes flattens the tree depth first. A role root nested under
+// another role root is skipped because its own pass collects it.
+function walkNodes(nodes, parentSync, out, assign) {
   for (const node of nodes) {
-    const syncId = idmap.l2s[node.id] ?? null;
+    let syncId = idmap.l2s[node.id] ?? null;
+    if (syncId && syncId.startsWith("root:")) continue;
+    if (!syncId && assign) {
+      syncId = crypto.randomUUID();
+      idmap.l2s[node.id] = syncId;
+      idmap.s2l[syncId] = node.id;
+    }
     out.push({
       localId: node.id,
       syncId,
@@ -278,14 +310,14 @@ function walkNodes(nodes, parentSync, out) {
       url: node.url ?? "",
     });
     if (node.children) {
-      walkNodes(node.children, syncId ?? parentSync, out);
+      walkNodes(node.children, syncId ?? parentSync, out, assign);
     }
   }
 }
 
 // refreshSnapshot stores the current managed tree state for diffing.
 async function refreshSnapshot() {
-  const nodes = await collectNodes();
+  const nodes = await collectNodes(false);
   const next = {};
   for (const node of nodes) {
     if (!node.syncId) continue;
@@ -309,22 +341,18 @@ function scheduleDiff() {
 
 // diffAndPush turns local bookmark changes into encrypted ops.
 async function diffAndPush() {
+  if (!config) return;
   if (applying > 0) {
     scheduleDiff();
     return;
   }
-  const nodes = await collectNodes();
+  const nodes = await collectNodes(true);
   const current = {};
   const creates = [];
   const moves = [];
   const updates = [];
   for (const node of nodes) {
-    let syncId = node.syncId;
-    if (!syncId) {
-      syncId = crypto.randomUUID();
-      idmap.l2s[node.localId] = syncId;
-      idmap.s2l[syncId] = node.localId;
-    }
+    const syncId = node.syncId;
     const state = { parent: node.parent, index: node.index, type: node.type, title: node.title, url: node.url };
     current[syncId] = state;
     const old = snapshot[syncId];
@@ -410,9 +438,8 @@ async function runSetup(url, master, configToken) {
   return { ok: true };
 }
 
-// runImportBookmarks replaces the bookmark log with an HTML export.
-async function runImportBookmarks(text) {
-  const tree = parseBookmarksHtml(text);
+// runImportBookmarks replaces the bookmark log with a parsed tree.
+async function runImportBookmarks(tree) {
   const ops = buildImportOps(tree);
   const res = await BsApi.reset("bookmarks");
   progress.bookmarks = { gen: res.gen, seq: 0 };
@@ -428,10 +455,42 @@ async function runImportPasswords(text) {
   const res = await BsApi.reset("passwords");
   progress.passwords = { gen: res.gen, seq: 0 };
   await Store.set("bs_progress", progress);
-  const ops = rows.map((row) => ({ t: "c", id: crypto.randomUUID(), ...row }));
+  const ops = rows.map((row) => ({ t: "c", id: crypto.randomUUID(), type: "login", ...row }));
   await pushOps("passwords", ops);
   await replayLocal("passwords");
   return { count: ops.length };
+}
+
+// matchEntries returns vault entries for the content script. Login
+// entries match by base domain, cards and identities list in full.
+function matchEntries(url, kind) {
+  const list = [];
+  for (const entry of Object.values(passwords)) {
+    if ((entry.type || "login") !== kind) continue;
+    list.push(entry);
+  }
+  if (kind !== "login") return list;
+  const target = hostOf(url);
+  if (!target) return [];
+  return list.filter((entry) => sameSite(entry.url, target));
+}
+
+function hostOf(url) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
+  }
+}
+
+function sameSite(entryUrl, targetHost) {
+  const host = hostOf(entryUrl);
+  if (!host) return false;
+  return host === targetHost || baseDomain(host) === baseDomain(targetHost);
+}
+
+function baseDomain(host) {
+  return host.split(".").slice(-2).join(".");
 }
 
 // changePassword pushes one password vault mutation.

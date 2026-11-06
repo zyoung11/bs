@@ -56,22 +56,65 @@
 
   <h2>密码条目</h2>
   <div class="row">
-    <input id="pwName" placeholder="名称">
+    <select id="pwType" data-field="type">
+      <option value="login">登录</option>
+      <option value="card">信用卡</option>
+      <option value="identity">身份</option>
+    </select>
   </div>
   <div class="row">
-    <input id="pwUrl" placeholder="网址">
+    <input id="pwName" data-field="name" placeholder="名称">
   </div>
-  <div class="row">
-    <input id="pwUser" placeholder="用户名">
+  <div class="row" data-types="login card identity">
+    <input id="pwUrl" data-field="url" placeholder="网址（登录用）">
   </div>
-  <div class="row">
-    <input id="pwPass" type="password" placeholder="密码">
+  <div class="row" data-types="login">
+    <input id="pwUser" data-field="username" placeholder="用户名">
+  </div>
+  <div class="row" data-types="login">
+    <input id="pwPass" data-field="password" type="password" placeholder="密码">
+  </div>
+  <div class="row" data-types="login">
+    <input id="pwTotp" data-field="totp" placeholder="TOTP 密钥或 otpauth 链接（可选）">
+  </div>
+  <div class="row" data-types="card">
+    <input id="pwCardholder" data-field="cardholder" placeholder="持卡人">
+  </div>
+  <div class="row" data-types="card">
+    <input id="pwNumber" data-field="number" placeholder="卡号">
+  </div>
+  <div class="row" data-types="card">
+    <input id="pwExp" data-field="exp" placeholder="有效期 如 09/28">
+  </div>
+  <div class="row" data-types="card">
+    <input id="pwCvv" data-field="cvv" placeholder="安全码">
+  </div>
+  <div class="row" data-types="identity">
+    <input id="pwFullName" data-field="fullName" placeholder="姓名">
+  </div>
+  <div class="row" data-types="identity">
+    <input id="pwEmail" data-field="email" placeholder="邮箱">
+  </div>
+  <div class="row" data-types="identity">
+    <input id="pwPhone" data-field="phone" placeholder="电话">
+  </div>
+  <div class="row" data-types="identity">
+    <input id="pwAddress" data-field="address" placeholder="地址">
+  </div>
+  <div class="row" data-types="identity">
+    <input id="pwCity" data-field="city" placeholder="城市">
+  </div>
+  <div class="row" data-types="identity">
+    <input id="pwZip" data-field="zip" placeholder="邮编">
+  </div>
+  <div class="row" data-types="identity">
+    <input id="pwCountry" data-field="country" placeholder="国家">
   </div>
   <button id="pwAdd">添加</button>
   <div id="pwMsg" class="msg"></div>
   <table id="pwTable" class="hidden">
     <thead>
-      <tr><th>名称</th><th>网址</th><th>用户名</th><th>密码</th><th></th></tr>
+      <tr><th>名称</th><th>摘要</th><th>子项</th><th>密文</th><th></th></tr>
     </thead>
     <tbody></tbody>
   </table>

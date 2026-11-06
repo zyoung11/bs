@@ -8,6 +8,19 @@ function say(id, text, ok) {
   el.className = "msg " + (ok ? "ok" : "err");
 }
 
+// entrySummary picks the display columns for one vault entry by type.
+function entrySummary(entry) {
+  const type = entry.type ?? "login";
+  if (type === "card") {
+    const last4 = (entry.number ?? "").replace(/\D/g, "").slice(-4);
+    return { head: "信用卡" + (last4 ? " ··" + last4 : ""), sub: entry.cardholder ?? "", secret: entry.number ?? "" };
+  }
+  if (type === "identity") {
+    return { head: entry.fullName ?? "", sub: entry.email ?? entry.phone ?? "", secret: entry.phone ?? "" };
+  }
+  return { head: entry.url ?? "", sub: entry.username ?? "", secret: entry.password ?? "" };
+}
+
 function send(msg) {
   return api.runtime.sendMessage(msg).then((resp) => {
     if (!resp.ok) throw new Error(resp.error);
@@ -44,16 +57,17 @@ async function refreshPasswords() {
   table.classList.remove("hidden");
   for (const entry of list) {
     const tr = document.createElement("tr");
-    for (const field of ["name", "url", "username"]) {
+    const summary = entrySummary(entry);
+    for (const value of [entry.name ?? "", summary.head, summary.sub]) {
       const td = document.createElement("td");
-      td.textContent = entry[field] ?? "";
+      td.textContent = value;
       tr.appendChild(td);
     }
     const tdPass = document.createElement("td");
     const btnShow = document.createElement("button");
     btnShow.textContent = "显示";
     btnShow.addEventListener("click", () => {
-      tdPass.textContent = tdPass.textContent === "****" ? entry.password ?? "" : "****";
+      tdPass.textContent = tdPass.textContent === "****" ? summary.secret ?? "" : "****";
     });
     tdPass.appendChild(btnShow);
     tr.appendChild(tdPass);
@@ -99,7 +113,8 @@ $("setup").addEventListener("click", async () => {
 $("importHtml").addEventListener("click", async () => {
   try {
     const text = await readFile($("htmlFile"));
-    const res = await send({ type: "import-bookmarks", text });
+    const tree = parseBookmarksHtml(text);
+    const res = await send({ type: "import-bookmarks", tree });
     say("htmlMsg", "导入 " + res.count + " 个节点", true);
   } catch (e) {
     say("htmlMsg", e.message, false);
@@ -118,22 +133,25 @@ $("importCsv").addEventListener("click", async () => {
 
 $("pwAdd").addEventListener("click", async () => {
   try {
-    await send({
-      type: "password",
-      action: "create",
-      entry: {
-        name: $("pwName").value.trim(),
-        url: $("pwUrl").value.trim(),
-        username: $("pwUser").value.trim(),
-        password: $("pwPass").value,
-        note: "",
-      },
-    });
+    const type = $("pwType").value;
+    const entry = { type, note: "" };
+    for (const input of document.querySelectorAll("[data-field]")) {
+      entry[input.dataset.field] = input.value.trim();
+    }
+    await send({ type: "password", action: "create", entry });
     say("pwMsg", "已添加", true);
     await refreshPasswords();
   } catch (e) {
     say("pwMsg", e.message, false);
   }
 });
+
+$("pwType").addEventListener("change", () => {
+  const type = $("pwType").value;
+  for (const row of document.querySelectorAll("[data-types]")) {
+    row.classList.toggle("hidden", !row.dataset.types.split(" ").includes(type));
+  }
+});
+document.getElementById("pwType").dispatchEvent(new Event("change"));
 
 refreshStatus();

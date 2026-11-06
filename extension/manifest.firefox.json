@@ -5,8 +5,16 @@
   "description": "Sync bookmarks and passwords through a bs server",
   "permissions": ["bookmarks", "storage", "alarms", "unlimitedStorage"],
   "host_permissions": ["http://*/*", "https://*/*"],
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["totp.js", "content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
   "background": {
-    "scripts": ["state.js", "crypto.js", "api.js", "import.js", "engine.js", "background.js"]
+    "scripts": ["state.js", "crypto.js", "api.js", "import.js", "totp.js", "engine.js", "background.js"]
   },
   "action": {
     "default_title": "bs sync"

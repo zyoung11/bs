@@ -1,7 +1,7 @@
 "use strict";
 
 if (typeof importScripts === "function") {
-  importScripts("state.js", "crypto.js", "api.js", "import.js", "engine.js");
+  importScripts("state.js", "crypto.js", "api.js", "import.js", "totp.js", "engine.js");
 }
 
 init().catch((e) => console.error("bs init failed:", e));
@@ -26,7 +26,7 @@ async function handleRequest(msg) {
     case "setup":
       return runSetup(msg.url, msg.master, msg.configToken ?? "");
     case "import-bookmarks":
-      return runImportBookmarks(msg.text);
+      return runImportBookmarks(msg.tree);
     case "import-passwords":
       return runImportPasswords(msg.text);
     case "password":
@@ -40,6 +40,8 @@ async function handleRequest(msg) {
       };
     case "passwords":
       return Object.values(passwords);
+    case "matches":
+      return matchEntries(msg.url, msg.kind);
     default:
       throw new Error("unknown request " + msg.type);
   }
