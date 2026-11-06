@@ -49,6 +49,23 @@ func Install(cfgPath string) error {
 	return nil
 }
 
+// ServiceState returns the systemd active state of the bs unit.
+// It returns "unavailable" when systemd is not present on the host.
+func ServiceState() (string, error) {
+	if _, err := os.Stat("/run/systemd/system"); err != nil {
+		return "unavailable", nil
+	}
+	out, err := exec.Command("systemctl", "is-active", "bs").Output()
+	state := strings.TrimSpace(string(out))
+	if err != nil && state == "" {
+		return "", err
+	}
+	if state == "" {
+		state = "unknown"
+	}
+	return state, nil
+}
+
 // Uninstall stops the daemon and removes the auto-start registration.
 func Uninstall() error {
 	if os.Geteuid() != 0 {

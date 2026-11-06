@@ -25,6 +25,10 @@ async function handleRequest(msg) {
   switch (msg.type) {
     case "setup":
       return runSetup(msg.url, msg.master, msg.configToken ?? "");
+    case "probe":
+      return BsApi.probe(msg.url);
+    case "reset":
+      return resetConfig();
     case "import-bookmarks":
       return runImportBookmarks(msg.tree);
     case "import-passwords":

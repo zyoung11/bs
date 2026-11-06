@@ -407,6 +407,29 @@ function wireEvents() {
   api.bookmarks.onChildrenReordered.addListener(scheduleDiff);
 }
 
+// resetConfig drops all local state and returns the extension to the
+// unconfigured state. Server data is left untouched.
+async function resetConfig() {
+  config = null;
+  idmap = { l2s: {}, s2l: {} };
+  snapshot = {};
+  progress = { bookmarks: { gen: 0, seq: 0 }, passwords: { gen: 0, seq: 0 } };
+  passwords = {};
+  applying = 0;
+  if (ws) {
+    ws.onclose = null;
+    ws.close();
+    ws = null;
+  }
+  wsDown = false;
+  await Store.set("bs_config", null);
+  await Store.set("bs_idmap", idmap);
+  await Store.set("bs_snapshot", snapshot);
+  await Store.set("bs_progress", progress);
+  await Store.set("bs_passwords", passwords);
+  return { ok: true };
+}
+
 // runSetup stores the credentials and seeds or replays the local tree.
 async function runSetup(url, master, configToken) {
   const derived = await BsCrypto.derive(master);
@@ -462,7 +485,8 @@ async function runImportPasswords(text) {
 }
 
 // matchEntries returns vault entries for the content script. Login
-// entries match by base domain, cards and identities list in full.
+// entries match by base domain and entries without a URL always match,
+// cards and identities list in full.
 function matchEntries(url, kind) {
   const list = [];
   for (const entry of Object.values(passwords)) {
@@ -471,8 +495,10 @@ function matchEntries(url, kind) {
   }
   if (kind !== "login") return list;
   const target = hostOf(url);
-  if (!target) return [];
-  return list.filter((entry) => sameSite(entry.url, target));
+  return list.filter((entry) => {
+    if (!hostOf(entry.url)) return true;
+    return target !== "" && sameSite(entry.url, target);
+  });
 }
 
 function hostOf(url) {

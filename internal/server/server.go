@@ -44,18 +44,38 @@ func New(st *store.Store, token string) *Server {
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  4096,
 			WriteBufferSize: 4096,
+			CheckOrigin:     allowOrigin,
 		},
 	}
+}
+
+// allowOrigin accepts every handshake origin because the browser
+// extension origin never matches the request host and the token check
+// already authenticates the client.
+func allowOrigin(r *http.Request) bool {
+	return true
 }
 
 // Handler returns the HTTP mux of the server.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/register", s.handleRegister)
+	mux.HandleFunc("/api/status", s.handleStatus)
 	mux.HandleFunc("/api/ops", s.handleOps)
 	mux.HandleFunc("/api/reset", s.handleReset)
 	mux.HandleFunc("/api/ws", s.handleWS)
 	return mux
+}
+
+// handleStatus reports whether an auth token is registered. It needs
+// no credentials so a fresh client can tell if it must register first.
+func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	hash := s.storedAuthHash()
+	writeJSON(w, http.StatusOK, statusResult{Registered: len(hash) > 0})
 }
 
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
@@ -288,6 +308,10 @@ func presentedToken(r *http.Request) string {
 		return auth[len(prefix):]
 	}
 	return r.URL.Query().Get("token")
+}
+
+type statusResult struct {
+	Registered bool `json:"registered"`
 }
 
 type pushResult struct {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net/http"
@@ -41,6 +42,7 @@ var commandExamples = map[string][]string{
 	"run":       {"bs run --config config.json"},
 	"install":   {"sudo bs install --config config.json"},
 	"uninstall": {"sudo bs uninstall"},
+	"status":    {"bs status", "bs status --config config.json"},
 }
 
 var commands = []command{
@@ -64,6 +66,14 @@ var commands = []command{
 		name: "uninstall", summary: "Stop the daemon and disable auto-start",
 		usage: "bs uninstall",
 		run:   uninstallCmd,
+	},
+	{
+		name: "status", summary: "Show daemon and service health",
+		usage: "bs status [--config <path>]",
+		options: [][2]string{
+			{"--config <path>", "config file path"},
+		},
+		run: statusCmd,
 	},
 	{
 		name: "version", summary: "Show version",
@@ -207,6 +217,84 @@ func uninstallCmd(_ []string) int {
 	}
 	logx.Success("daemon stopped and auto-start disabled")
 	return 0
+}
+
+func statusCmd(args []string) int {
+	fs := flag.NewFlagSet("status", flag.ExitOnError)
+	fs.Usage = func() {
+		printCommandUsage(command{
+			name: "status", summary: "Show daemon and service health",
+			usage: "bs status [--config <path>]",
+			options: [][2]string{
+				{"--config <path>", "config file path"},
+			},
+		})
+	}
+	cfgPath := fs.String("config", config.DefaultPath(), "config file path")
+	fs.Parse(args)
+
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		logx.Error("config: %v", err)
+		return 1
+	}
+	if err := cfg.Validate(); err != nil {
+		logx.Error("config: %v", err)
+		return 1
+	}
+	logx.Info("config %s", *cfgPath)
+
+	dataPath := config.DataPath(*cfgPath)
+	if _, err := os.Stat(dataPath); err != nil {
+		logx.Warn("database %s missing", dataPath)
+	} else {
+		logx.Info("database %s", dataPath)
+	}
+
+	state, err := service.ServiceState()
+	if err != nil {
+		logx.Warn("service: %v", err)
+	} else {
+		logx.Info("service %s", state)
+	}
+
+	health := probeHealth(cfg.Port)
+	if !health.reachable {
+		logx.Error("daemon not answering on port %d", cfg.Port)
+		return 1
+	}
+	logx.Success("daemon answering on port %d", cfg.Port)
+	if health.registered {
+		logx.Info("auth token registered")
+	} else {
+		logx.Warn("no auth token yet, connect a client to register")
+	}
+	return 0
+}
+
+type healthResult struct {
+	reachable  bool
+	registered bool
+}
+
+func probeHealth(port int) healthResult {
+	url := fmt.Sprintf("http://127.0.0.1:%d/api/status", port)
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return healthResult{}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return healthResult{reachable: true}
+	}
+	var body struct {
+		Registered bool `json:"registered"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return healthResult{reachable: true}
+	}
+	return healthResult{reachable: true, registered: body.Registered}
 }
 
 func versionCmd(_ []string) int {

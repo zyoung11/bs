@@ -8,19 +8,6 @@ function say(id, text, ok) {
   el.className = "msg " + (ok ? "ok" : "err");
 }
 
-// entrySummary picks the display columns for one vault entry by type.
-function entrySummary(entry) {
-  const type = entry.type ?? "login";
-  if (type === "card") {
-    const last4 = (entry.number ?? "").replace(/\D/g, "").slice(-4);
-    return { head: "信用卡" + (last4 ? " ··" + last4 : ""), sub: entry.cardholder ?? "", secret: entry.number ?? "" };
-  }
-  if (type === "identity") {
-    return { head: entry.fullName ?? "", sub: entry.email ?? entry.phone ?? "", secret: entry.phone ?? "" };
-  }
-  return { head: entry.url ?? "", sub: entry.username ?? "", secret: entry.password ?? "" };
-}
-
 function send(msg) {
   return api.runtime.sendMessage(msg).then((resp) => {
     if (!resp.ok) throw new Error(resp.error);
@@ -28,71 +15,67 @@ function send(msg) {
   });
 }
 
-async function refreshStatus() {
-  try {
-    const st = await send({ type: "status" });
-    if (!st.configured) {
-      $("status").textContent = "未配置。填写下方初始化表单。";
-      return;
-    }
-    $("status").textContent =
-      "已连接 " + st.url +
-      "，书签 " + st.progress.bookmarks.seq + " 条操作" +
-      "，密码 " + st.passwordCount + " 条";
-    await refreshPasswords();
-  } catch (e) {
-    $("status").textContent = "状态读取失败：" + e.message;
-  }
-}
-
-async function refreshPasswords() {
-  const list = await send({ type: "passwords" });
-  const table = $("pwTable");
-  const tbody = table.querySelector("tbody");
-  tbody.textContent = "";
-  if (list.length === 0) {
-    table.classList.add("hidden");
-    return;
-  }
-  table.classList.remove("hidden");
-  for (const entry of list) {
-    const tr = document.createElement("tr");
-    const summary = entrySummary(entry);
-    for (const value of [entry.name ?? "", summary.head, summary.sub]) {
-      const td = document.createElement("td");
-      td.textContent = value;
-      tr.appendChild(td);
-    }
-    const tdPass = document.createElement("td");
-    const btnShow = document.createElement("button");
-    btnShow.textContent = "显示";
-    btnShow.addEventListener("click", () => {
-      tdPass.textContent = tdPass.textContent === "****" ? summary.secret ?? "" : "****";
-    });
-    tdPass.appendChild(btnShow);
-    tr.appendChild(tdPass);
-    const tdDel = document.createElement("td");
-    const btnDel = document.createElement("button");
-    btnDel.textContent = "删除";
-    btnDel.addEventListener("click", async () => {
-      try {
-        await send({ type: "password", action: "delete", entry });
-        await refreshPasswords();
-        say("pwMsg", "已删除", true);
-      } catch (e) {
-        say("pwMsg", e.message, false);
-      }
-    });
-    tdDel.appendChild(btnDel);
-    tr.appendChild(tdDel);
-    tbody.appendChild(tr);
-  }
-}
-
 function readFile(input) {
   const file = input.files[0];
   if (!file) return Promise.reject(new Error("先选择文件"));
   return file.text();
+}
+
+let configured = false;
+
+// render draws the setup panel from the current login state.
+// When configured the address and master password lock and only reset stays.
+async function render() {
+  const st = await send({ type: "status" });
+  configured = st.configured;
+  if (configured) {
+    $("url").value = st.url;
+    $("url").disabled = true;
+    $("master").disabled = true;
+    $("master").placeholder = "已锁定，重置后可改";
+    $("configToken").value = "";
+    $("tokenRow").classList.add("hidden");
+    $("setup").classList.add("hidden");
+    $("reset").classList.remove("hidden");
+    $("reRegister").classList.add("hidden");
+    $("setupNote").textContent = "已连接服务器。地址和主密码已锁定，更改请先重置。";
+    $("status").textContent =
+      "已连接 " + st.url +
+      " · 书签 " + st.progress.bookmarks.seq + " 条操作" +
+      " · 密码 " + st.passwordCount + " 条";
+    return;
+  }
+  $("url").disabled = false;
+  $("master").disabled = false;
+  $("master").placeholder = "派生加密密钥和认证令牌";
+  $("setup").classList.remove("hidden");
+  $("reset").classList.add("hidden");
+  $("status").textContent = "未配置。填写表单连接服务器。";
+  await updateTokenVisibility();
+}
+
+// updateTokenVisibility probes the server and hides the token field when
+// the server already holds a registered token, so the second machine and
+// re-login only need the master password.
+async function updateTokenVisibility() {
+  const url = $("url").value.trim();
+  if (!url) {
+    $("tokenRow").classList.remove("hidden");
+    $("reRegister").classList.add("hidden");
+    $("setupNote").textContent = "填服务器地址后自动判断是否需要 config token。";
+    return;
+  }
+  const res = await send({ type: "probe", url }).catch(() => null);
+  if (res && res.registered) {
+    $("tokenRow").classList.add("hidden");
+    $("configToken").value = "";
+    $("reRegister").classList.remove("hidden");
+    $("setupNote").textContent = "服务器已注册，输入主密码即可登录。";
+    return;
+  }
+  $("tokenRow").classList.remove("hidden");
+  $("reRegister").classList.add("hidden");
+  $("setupNote").textContent = "服务器未注册，首次连接需要 config token。";
 }
 
 $("setup").addEventListener("click", async () => {
@@ -104,13 +87,35 @@ $("setup").addEventListener("click", async () => {
       configToken: $("configToken").value.trim(),
     });
     say("setupMsg", "连接成功", true);
-    await refreshStatus();
+    await render();
   } catch (e) {
     say("setupMsg", e.message, false);
   }
 });
 
-$("importHtml").addEventListener("click", async () => {
+$("reset").addEventListener("click", async () => {
+  try {
+    await send({ type: "reset" });
+    $("master").value = "";
+    $("configToken").value = "";
+    say("setupMsg", "已重置，请重新填写", true);
+    await render();
+  } catch (e) {
+    say("setupMsg", e.message, false);
+  }
+});
+
+$("reRegister").addEventListener("click", () => {
+  $("tokenRow").classList.remove("hidden");
+  $("reRegister").classList.add("hidden");
+  $("setupNote").textContent = "填 config token 和新主密码以重新注册。";
+});
+
+$("url").addEventListener("change", () => {
+  if (!configured) updateTokenVisibility();
+});
+
+$("htmlFile").addEventListener("change", async () => {
   try {
     const text = await readFile($("htmlFile"));
     const tree = parseBookmarksHtml(text);
@@ -121,7 +126,7 @@ $("importHtml").addEventListener("click", async () => {
   }
 });
 
-$("importCsv").addEventListener("click", async () => {
+$("csvFile").addEventListener("change", async () => {
   try {
     const text = await readFile($("csvFile"));
     const res = await send({ type: "import-passwords", text });
@@ -131,27 +136,6 @@ $("importCsv").addEventListener("click", async () => {
   }
 });
 
-$("pwAdd").addEventListener("click", async () => {
-  try {
-    const type = $("pwType").value;
-    const entry = { type, note: "" };
-    for (const input of document.querySelectorAll("[data-field]")) {
-      entry[input.dataset.field] = input.value.trim();
-    }
-    await send({ type: "password", action: "create", entry });
-    say("pwMsg", "已添加", true);
-    await refreshPasswords();
-  } catch (e) {
-    say("pwMsg", e.message, false);
-  }
+render().catch((e) => {
+  $("status").textContent = "状态读取失败：" + e.message;
 });
-
-$("pwType").addEventListener("change", () => {
-  const type = $("pwType").value;
-  for (const row of document.querySelectorAll("[data-types]")) {
-    row.classList.toggle("hidden", !row.dataset.types.split(" ").includes(type));
-  }
-});
-document.getElementById("pwType").dispatchEvent(new Event("change"));
-
-refreshStatus();

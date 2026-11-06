@@ -9,6 +9,12 @@ const BsApi = {
     this.token = token;
   },
 
+  probe(url) {
+    return fetch(url.replace(/\/+$/, "") + "/api/status")
+      .then((r) => r.json())
+      .catch(() => null);
+  },
+
   async request(method, path, body, bearer) {
     const headers = {};
     if (bearer) headers["Authorization"] = "Bearer " + bearer;

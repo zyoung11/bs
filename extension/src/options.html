@@ -1,123 +1,322 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh" data-theme="dark">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>bs sync</title>
 <style>
-  body { font-family: sans-serif; margin: 24px; max-width: 640px; }
-  h2 { margin-top: 32px; font-size: 16px; }
-  label { display: block; margin: 8px 0 2px; font-size: 13px; color: #555; }
-  input { width: 100%; padding: 6px; box-sizing: border-box; }
-  button { margin-top: 12px; padding: 6px 16px; }
-  .row { margin-bottom: 8px; }
-  .msg { margin-top: 8px; font-size: 13px; }
-  .ok { color: #1a7f37; }
-  .err { color: #b42318; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #ddd; }
+  :root {
+    --seam:         #100f0e;
+    --bg:           #161513;
+    --surface-1:    #201e1c;
+    --surface-2:    #2a2724;
+    --btn-bg:       #2b2926;
+    --line:         rgba(244, 240, 233, 0.11);
+    --line-strong:  rgba(244, 240, 233, 0.24);
+    --text:         rgba(248, 245, 239, 0.97);
+    --text-2:       rgba(248, 245, 239, 0.72);
+    --text-3:       rgba(248, 245, 239, 0.52);
+    --text-4:       rgba(248, 245, 239, 0.38);
+    --accent:       #ff5c00;
+    --accent-soft:  rgba(255, 92, 0, 0.13);
+    --accent-line:  rgba(255, 92, 0, 0.50);
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+            "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas,
+            "Liberation Mono", "Noto Sans Mono CJK SC", monospace;
+    --t-state:  0.12s;
+    --ease:     cubic-bezier(0.2, 0, 0, 1);
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+
+  .table-wrap::-webkit-scrollbar { height: 6px; }
+  .table-wrap::-webkit-scrollbar-thumb { background: var(--line-strong); }
+  .table-wrap::-webkit-scrollbar-track { background: var(--surface-2); }
+
+  body {
+    margin: 0;
+    background: var(--seam);
+    color: var(--text);
+    font: 400 13px/1.62 var(--sans);
+    letter-spacing: -0.01em;
+    font-feature-settings: "tnum" 1;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .content {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-width: 720px;
+    margin: 0 auto;
+    padding-bottom: calc(2px + env(safe-area-inset-bottom));
+  }
+
+  .panel {
+    background: var(--bg);
+    padding: 18px 20px;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .label {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    margin: 0 0 12px;
+    display: block;
+  }
+
+  h1 {
+    margin: 0;
+    font: 700 24px/1.2 var(--sans);
+    letter-spacing: -0.02em;
+  }
+
+  .sub {
+    margin: 4px 0 0;
+    color: var(--text-3);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .field-row {
+    padding: 6px 0 4px;
+    border-bottom: 1px solid var(--line);
+    transition: background var(--t-state) var(--ease),
+                box-shadow var(--t-state) var(--ease);
+  }
+
+  .field-row:last-of-type { border-bottom: none; }
+
+  .field-row:focus-within {
+    background: var(--surface-1);
+    box-shadow: inset 0 -2px 0 var(--accent);
+  }
+
+  .field-row label {
+    display: block;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-3);
+  }
+
+  .field-row input,
+  .field-row select {
+    width: 100%;
+    font: 400 13px/1.6 var(--sans);
+    color: var(--text);
+    background: transparent;
+    border: none;
+    padding: 6px 0;
+    outline: none;
+  }
+
+  .field-row input::placeholder { color: var(--text-4); }
+
+  .field-row input:disabled,
+  .field-row select:disabled {
+    color: var(--text-3);
+    cursor: not-allowed;
+    opacity: 0.7;
+  }
+
+  input[type="file"] {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-3);
+    letter-spacing: 0.08em;
+    padding: 8px 0;
+    width: 100%;
+  }
+
+  input[type="file"]::file-selector-button {
+    font: 400 11px/1 var(--mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-2);
+    background: var(--btn-bg);
+    border: none;
+    border-radius: 0;
+    padding: 8px 14px;
+    margin-right: 12px;
+    cursor: pointer;
+    transition: background var(--t-state) var(--ease), color var(--t-state) var(--ease);
+  }
+
+  input[type="file"]::file-selector-button:hover {
+    background: var(--surface-1);
+    color: var(--text);
+  }
+
+  :focus-visible {
+    outline: 1px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .row-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .btn {
+    display: inline-block;
+    font: 400 13px/1 var(--mono);
+    letter-spacing: 0.12em;
+    color: var(--text);
+    background: var(--btn-bg);
+    border: none;
+    border-radius: 0;
+    padding: 11px 18px;
+    margin-top: 12px;
+    cursor: pointer;
+    transition: background var(--t-state) var(--ease), color var(--t-state) var(--ease);
+  }
+
+  .row-actions .btn { margin-top: 0; }
+
+  .btn:hover { background: var(--surface-2); color: var(--text); }
+
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .btn-primary {
+    background: var(--accent);
+    color: #000;
+    font-weight: 700;
+  }
+
+  .btn-primary:hover { background: var(--accent); filter: brightness(1.08); }
+
+  .msg {
+    min-height: 16px;
+    margin-top: 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-4);
+    transition: color var(--t-state) var(--ease);
+  }
+
+  .msg.ok { color: var(--text-2); }
+  .msg.err { color: var(--accent); }
+
+  #status {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-2);
+    line-height: 1.7;
+  }
+
   .hidden { display: none; }
+
+  .link-btn {
+    background: none;
+    border: none;
+    padding: 6px 0 0;
+    color: var(--accent);
+    font: 400 11px/1.6 var(--mono);
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .link-btn:hover { filter: brightness(1.15); }
+
+  .spacer { height: 2px; }
+
+  .note {
+    margin: 8px 0 0;
+    color: var(--text-3);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    line-height: 1.6;
+  }
+
+  @media (prefers-contrast: more) {
+    :root {
+      --line:        rgba(244, 240, 233, 0.34);
+      --line-strong: rgba(244, 240, 233, 0.58);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+
+  @media (max-width: 479px) {
+    .field-row input,
+    .field-row select { font-size: 16px; }
+    .panel { padding: 14px 14px; }
+  }
 </style>
 </head>
 <body>
-  <h1>bs sync</h1>
+  <div class="content">
 
-  <h2>状态</h2>
-  <div id="status" class="msg">加载中</div>
+    <div class="panel">
+      <h1>bs sync</h1>
+      <p class="sub">bookmark &amp; password sync</p>
+    </div>
 
-  <h2>初始化</h2>
-  <div class="row">
-    <label>服务器地址</label>
-    <input id="url" placeholder="http://192.168.100.2:8000">
-  </div>
-  <div class="row">
-    <label>主密码（派生加密密钥和认证令牌）</label>
-    <input id="master" type="password">
-  </div>
-  <div class="row">
-    <label>config token（仅首次注册需要，bs 启动时打印）</label>
-    <input id="configToken" type="password">
-  </div>
-  <button id="setup">保存并连接</button>
-  <div id="setupMsg" class="msg"></div>
+    <div class="panel">
+      <span class="label">Status</span>
+      <div id="status">加载中</div>
+    </div>
 
-  <h2>导入书签（HTML）</h2>
-  <div class="row">
-    <input id="htmlFile" type="file" accept=".html,.htm">
-  </div>
-  <button id="importHtml">导入并替代书签日志</button>
-  <div id="htmlMsg" class="msg"></div>
+    <div class="panel">
+      <span class="label">Setup · 初始化</span>
+      <div class="field-row">
+        <label for="url">服务器地址</label>
+        <input id="url" placeholder="http://192.168.100.1:7878" autocomplete="off">
+      </div>
+      <div class="field-row">
+        <label for="master">主密码</label>
+        <input id="master" type="password" placeholder="派生加密密钥和认证令牌" autocomplete="new-password">
+      </div>
+      <div class="field-row" id="tokenRow">
+        <label for="configToken">Config Token</label>
+        <input id="configToken" type="password" placeholder="仅首次注册需要，bs 启动时打印" autocomplete="off">
+      </div>
+      <div class="row-actions">
+        <button id="setup" class="btn btn-primary">保存并连接</button>
+        <button id="reset" class="btn hidden">重置</button>
+      </div>
+      <div id="setupMsg" class="msg"></div>
+      <p class="note" id="setupNote"></p>
+      <button id="reRegister" class="link-btn hidden">换主密码？用 config token 重新注册</button>
+    </div>
 
-  <h2>导入密码（CSV）</h2>
-  <div class="row">
-    <input id="csvFile" type="file" accept=".csv">
-  </div>
-  <button id="importCsv">导入并替代密码日志</button>
-  <div id="csvMsg" class="msg"></div>
+    <div class="panel">
+      <span class="label">Import Bookmarks · 书签</span>
+      <div class="field-row">
+        <input id="htmlFile" type="file" accept=".html,.htm">
+      </div>
+      <div id="htmlMsg" class="msg"></div>
+    </div>
 
-  <h2>密码条目</h2>
-  <div class="row">
-    <select id="pwType" data-field="type">
-      <option value="login">登录</option>
-      <option value="card">信用卡</option>
-      <option value="identity">身份</option>
-    </select>
+    <div class="panel">
+      <span class="label">Import Passwords · 密码</span>
+      <div class="field-row">
+        <input id="csvFile" type="file" accept=".csv">
+      </div>
+      <div id="csvMsg" class="msg"></div>
+    </div>
+
   </div>
-  <div class="row">
-    <input id="pwName" data-field="name" placeholder="名称">
-  </div>
-  <div class="row" data-types="login card identity">
-    <input id="pwUrl" data-field="url" placeholder="网址（登录用）">
-  </div>
-  <div class="row" data-types="login">
-    <input id="pwUser" data-field="username" placeholder="用户名">
-  </div>
-  <div class="row" data-types="login">
-    <input id="pwPass" data-field="password" type="password" placeholder="密码">
-  </div>
-  <div class="row" data-types="login">
-    <input id="pwTotp" data-field="totp" placeholder="TOTP 密钥或 otpauth 链接（可选）">
-  </div>
-  <div class="row" data-types="card">
-    <input id="pwCardholder" data-field="cardholder" placeholder="持卡人">
-  </div>
-  <div class="row" data-types="card">
-    <input id="pwNumber" data-field="number" placeholder="卡号">
-  </div>
-  <div class="row" data-types="card">
-    <input id="pwExp" data-field="exp" placeholder="有效期 如 09/28">
-  </div>
-  <div class="row" data-types="card">
-    <input id="pwCvv" data-field="cvv" placeholder="安全码">
-  </div>
-  <div class="row" data-types="identity">
-    <input id="pwFullName" data-field="fullName" placeholder="姓名">
-  </div>
-  <div class="row" data-types="identity">
-    <input id="pwEmail" data-field="email" placeholder="邮箱">
-  </div>
-  <div class="row" data-types="identity">
-    <input id="pwPhone" data-field="phone" placeholder="电话">
-  </div>
-  <div class="row" data-types="identity">
-    <input id="pwAddress" data-field="address" placeholder="地址">
-  </div>
-  <div class="row" data-types="identity">
-    <input id="pwCity" data-field="city" placeholder="城市">
-  </div>
-  <div class="row" data-types="identity">
-    <input id="pwZip" data-field="zip" placeholder="邮编">
-  </div>
-  <div class="row" data-types="identity">
-    <input id="pwCountry" data-field="country" placeholder="国家">
-  </div>
-  <button id="pwAdd">添加</button>
-  <div id="pwMsg" class="msg"></div>
-  <table id="pwTable" class="hidden">
-    <thead>
-      <tr><th>名称</th><th>摘要</th><th>子项</th><th>密文</th><th></th></tr>
-    </thead>
-    <tbody></tbody>
-  </table>
 
   <script src="state.js"></script>
   <script src="crypto.js"></script>

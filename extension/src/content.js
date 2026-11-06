@@ -36,77 +36,38 @@
 
   const usernameHints = /user|login|email|mail|account|member|signin|账号|帐户|邮箱|用户|登录/;
 
-  const panelCSS = `
-    :host { all: initial; }
-    .panel {
+  const popupCSS = `
+    .bs-box {
       position: fixed; z-index: 2147483647;
-      min-width: 260px; max-width: 340px;
+      min-width: 240px; max-width: 320px;
       background: #fff; color: #1c1b1f;
-      border: 1px solid #c6c6ca; border-radius: 8px;
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
-      font: 13px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif;
+      border: 1px solid #c6c6ca; border-radius: 10px;
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22);
+      font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
       overflow: hidden;
     }
-    .row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; cursor: pointer; }
-    .row.sel { background: #e8f0fe; }
-    .avatar {
+    .bs-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; cursor: pointer; }
+    .bs-row.sel { background: #e8f0fe; }
+    .bs-av {
       flex: 0 0 22px; height: 22px; border-radius: 50%;
       color: #fff; font-size: 12px; font-weight: 600;
       display: flex; align-items: center; justify-content: center;
     }
-    .texts { min-width: 0; flex: 1; }
-    .title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .sub { color: #5f6368; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .hint { padding: 5px 10px; background: #f6f6f8; color: #5f6368; font-size: 11px; border-top: 1px solid #e3e3e6; }
-    .toast {
-      position: fixed; z-index: 2147483647;
-      right: 16px; bottom: 16px; padding: 8px 14px;
-      background: #1c1b1f; color: #fff; border-radius: 6px;
-      font: 13px/1.3 system-ui, sans-serif;
-    }
-    .hidden { display: none; }
+    .bs-texts { min-width: 0; flex: 1; }
+    .bs-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .bs-sub { color: #5f6368; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .bs-hint { padding: 5px 10px; background: #f6f6f8; color: #5f6368; font-size: 11px; border-top: 1px solid #e3e3e6; }
+    .bs-empty { padding: 12px; color: #5f6368; font-size: 12px; text-align: center; }
   `;
 
-  let host = null;
-  let shadow = null;
-  let panel = null;
-  let listEl = null;
-  let toastEl = null;
   let activeInput = null;
-  let items = [];
-  let selected = 0;
+  let activeKind = null;
+  let activeEntries = [];
+  let activeToken = null;
   let hideTimer = 0;
-
-  function ensurePanel() {
-    if (panel) return;
-    host = document.createElement("div");
-    shadow = host.attachShadow({ mode: "closed" });
-    const style = document.createElement("style");
-    style.textContent = panelCSS;
-    panel = document.createElement("div");
-    panel.className = "panel hidden";
-    listEl = document.createElement("div");
-    const hint = document.createElement("div");
-    hint.className = "hint";
-    hint.textContent = "↑↓ 选择 · Enter 填充 · Esc 关闭";
-    panel.append(listEl, hint);
-    toastEl = document.createElement("div");
-    toastEl.className = "toast hidden";
-    shadow.append(style, panel, toastEl);
-    document.documentElement.appendChild(host);
-    panel.addEventListener("mousedown", (ev) => ev.preventDefault());
-    panel.addEventListener("click", (ev) => {
-      const row = ev.target.closest?.(".row");
-      if (!row) return;
-      choose(Number(row.dataset.index));
-    });
-    panel.addEventListener("mousemove", (ev) => {
-      const row = ev.target.closest?.(".row");
-      if (!row) return;
-      selected = Number(row.dataset.index);
-      highlight();
-    });
-  }
+  let popup = null;
+  let popupRows = [];
+  let popupSel = 0;
 
   function visible(el) {
     return el.offsetWidth > 0 || el.offsetHeight > 0 || el.getClientRects().length > 0;
@@ -161,83 +122,13 @@
     return colors[sum % colors.length];
   }
 
-  function render() {
-    listEl.textContent = "";
-    items.forEach((entry, i) => {
-      const row = document.createElement("div");
-      row.className = "row";
-      row.dataset.index = i;
-      const avatar = document.createElement("div");
-      avatar.className = "avatar";
-      const title = entryTitle(entry);
-      avatar.textContent = (entry.name || "?").trim().charAt(0).toUpperCase();
-      avatar.style.background = avatarColor(entry.name || entry.url || "?");
-      const texts = document.createElement("div");
-      texts.className = "texts";
-      const t = document.createElement("div");
-      t.className = "title";
-      t.textContent = title;
-      const s = document.createElement("div");
-      s.className = "sub";
-      s.textContent = entrySub(entry);
-      texts.append(t, s);
-      row.append(avatar, texts);
-      listEl.appendChild(row);
-    });
-    highlight();
-  }
-
-  function highlight() {
-    for (const row of listEl.children) {
-      row.classList.toggle("sel", Number(row.dataset.index) === selected);
-    }
-  }
-
-  function positionPanel(input) {
-    const rect = input.getBoundingClientRect();
-    const width = panel.offsetWidth;
-    const height = panel.offsetHeight;
-    const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
-    let top = rect.bottom + 6;
-    if (top + height > window.innerHeight - 8) top = Math.max(8, rect.top - height - 6);
-    panel.style.left = left + "px";
-    panel.style.top = top + "px";
-  }
-
-  function showPanel(input) {
-    ensurePanel();
-    panel.classList.remove("hidden");
-    positionPanel(input);
-  }
-
-  function hidePanel() {
-    if (panel) panel.classList.add("hidden");
-    activeInput = null;
-    items = [];
-    selected = 0;
-  }
-
-  function toast(text) {
-    ensurePanel();
-    toastEl.textContent = text;
-    toastEl.classList.remove("hidden");
-    setTimeout(() => toastEl.classList.add("hidden"), 1600);
-  }
-
-  async function copyText(text) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      ta.style.cssText = "position:fixed;opacity:0";
-      document.body.appendChild(ta);
-      ta.select();
-      const ok = document.execCommand("copy");
-      ta.remove();
-      return ok;
-    }
+  function toDisplay(entry) {
+    return {
+      title: entryTitle(entry),
+      sub: entrySub(entry),
+      av: (entry.name || "?").trim().charAt(0).toUpperCase(),
+      color: avatarColor(entry.name || entry.url || "?"),
+    };
   }
 
   function setNativeValue(el, value) {
@@ -256,13 +147,12 @@
     return out;
   }
 
-  function fillLogin(entry) {
-    const scope = (activeInput && activeInput.form) || document;
+  function fillLogin(entry, scope) {
     const inputs = scopeInputs(scope);
-    const passwords = inputs.filter(isPasswordField);
-    const usernames = inputs.filter((el) => !isPasswordField(el) && fieldKind(el) === kindLogin);
-    for (const el of usernames) setNativeValue(el, entry.username ?? "");
-    for (const el of passwords) setNativeValue(el, entry.password ?? "");
+    const pwds = inputs.filter(isPasswordField);
+    const users = inputs.filter((el) => !isPasswordField(el) && fieldKind(el) === kindLogin);
+    for (const el of users) setNativeValue(el, entry.username ?? "");
+    for (const el of pwds) setNativeValue(el, entry.password ?? "");
   }
 
   function splitExp(exp) {
@@ -270,111 +160,323 @@
     return { month: parts[0] ?? "", year: parts[1] ?? "" };
   }
 
-  function fillCard(entry) {
-    const scope = (activeInput && activeInput.form) || document;
+  function fillCard(entry, scope) {
     const exp = splitExp(entry.exp);
     for (const el of scopeInputs(scope)) {
       const ac = (el.autocomplete || "").toLowerCase();
-      const field = cardAttrs[ac];
-      if (!field) continue;
-      if (field === "number") setNativeValue(el, entry.number ?? "");
-      else if (field === "cvv") setNativeValue(el, entry.cvv ?? "");
-      else if (field === "cardholder") setNativeValue(el, entry.cardholder ?? "");
+      const f = cardAttrs[ac];
+      if (!f) continue;
+      if (f === "number") setNativeValue(el, entry.number ?? "");
+      else if (f === "cvv") setNativeValue(el, entry.cvv ?? "");
+      else if (f === "cardholder") setNativeValue(el, entry.cardholder ?? "");
       else if (ac === "cc-exp") setNativeValue(el, entry.exp ?? "");
       else if (ac === "cc-exp-month") setNativeValue(el, exp.month);
       else if (ac === "cc-exp-year") setNativeValue(el, exp.year);
     }
   }
 
-  function fillIdentity(entry) {
-    const scope = (activeInput && activeInput.form) || document;
+  function fillIdentity(entry, scope) {
     const fullName = entry.fullName ?? "";
     const parts = fullName.trim().split(/\s+/);
     for (const el of scopeInputs(scope)) {
       const ac = (el.autocomplete || "").toLowerCase();
-      const field = identityAttrs[ac];
-      if (!field) continue;
-      if (field === "fullName") setNativeValue(el, fullName);
-      else if (field === "firstName") setNativeValue(el, parts[0] ?? "");
-      else if (field === "lastName") setNativeValue(el, parts.slice(1).join(" "));
-      else if (field === "email") setNativeValue(el, entry.email ?? "");
-      else if (field === "phone") setNativeValue(el, entry.phone ?? "");
-      else if (field === "address") setNativeValue(el, entry.address ?? "");
-      else if (field === "city") setNativeValue(el, entry.city ?? "");
-      else if (field === "zip") setNativeValue(el, entry.zip ?? "");
-      else if (field === "country") setNativeValue(el, entry.country ?? "");
+      const f = identityAttrs[ac];
+      if (!f) continue;
+      if (f === "fullName") setNativeValue(el, fullName);
+      else if (f === "firstName") setNativeValue(el, parts[0] ?? "");
+      else if (f === "lastName") setNativeValue(el, parts.slice(1).join(" "));
+      else if (f === "email") setNativeValue(el, entry.email ?? "");
+      else if (f === "phone") setNativeValue(el, entry.phone ?? "");
+      else if (f === "address") setNativeValue(el, entry.address ?? "");
+      else if (f === "city") setNativeValue(el, entry.city ?? "");
+      else if (f === "zip") setNativeValue(el, entry.zip ?? "");
+      else if (f === "country") setNativeValue(el, entry.country ?? "");
     }
   }
 
-  async function choose(index) {
-    const entry = items[index];
-    if (!entry) return;
-    const kind = entry.type || kindLogin;
-    hidePanel();
-    if (kind === kindCard) fillCard(entry);
-    else if (kind === kindIdentity) fillIdentity(entry);
-    else {
-      fillLogin(entry);
-      if (entry.totp) {
-        const code = await BsTotp.code(entry.totp);
-        if (code) {
-          await copyText(code);
-          toast("验证码 " + code + " 已复制");
-        }
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.cssText = "position:fixed;opacity:0";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      return ok;
+    }
+  }
+
+  function toast(text) {
+    const box = document.createElement("div");
+    box.textContent = text;
+    box.style.cssText =
+      "position:fixed;z-index:2147483647;right:16px;bottom:16px;padding:8px 14px;" +
+      "background:#1c1b1f;color:#fff;border-radius:6px;font:13px/1.3 system-ui,sans-serif;";
+    (document.body || document.documentElement).appendChild(box);
+    setTimeout(() => box.remove(), 1600);
+  }
+
+  function frames() {
+    return Array.from(document.querySelectorAll("iframe,frame"));
+  }
+
+  function findFrameForSource(source) {
+    for (const f of frames()) {
+      if (f.contentWindow === source) return f;
+    }
+    return null;
+  }
+
+  function frameContentOffset(frame) {
+    const r = frame.getBoundingClientRect();
+    const st = getComputedStyle(frame);
+    const padT = parseFloat(st.paddingTop) || 0;
+    const padL = parseFloat(st.paddingLeft) || 0;
+    const borT = parseFloat(st.borderTopWidth) || 0;
+    const borL = parseFloat(st.borderLeftWidth) || 0;
+    return {
+      top: r.top + padT + borT,
+      left: r.left + padL + borL,
+    };
+  }
+
+  function isTopFrame() {
+    return window === window.top;
+  }
+
+  function sendFocusUp(rect, token, entries) {
+    const payload = {
+      type: "bs-focus",
+      rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
+      token,
+      entries,
+    };
+    if (isTopFrame()) {
+      showPopup(payload.rect, payload.entries, payload.token);
+    } else {
+      window.parent.postMessage(payload, "*");
+    }
+  }
+
+  function relayFocusMessage(ev) {
+    const d = ev.data;
+    if (!d || d.type !== "bs-focus") return;
+    const frame = findFrameForSource(ev.source);
+    if (!frame) return;
+    const off = frameContentOffset(frame);
+    const rect = {
+      top: d.rect.top + off.top,
+      left: d.rect.left + off.left,
+      width: d.rect.width,
+      height: d.rect.height,
+    };
+    if (isTopFrame()) {
+      showPopup(rect, d.entries, d.token);
+    } else {
+      window.parent.postMessage({ type: "bs-focus", rect, token: d.token, entries: d.entries }, "*");
+    }
+  }
+
+  function dispatchFill(token, index) {
+    if (activeToken === token && activeEntries[index]) {
+      performFill(index);
+      return;
+    }
+    for (const f of frames()) {
+      if (f.contentWindow) {
+        f.contentWindow.postMessage({ type: "bs-fill", token, index }, "*");
       }
     }
   }
 
-  function move(dir) {
-    if (items.length === 0) return;
-    selected = (selected + dir + items.length) % items.length;
-    highlight();
-    listEl.children[selected]?.scrollIntoView({ block: "nearest" });
+  function relayFillMessage(ev) {
+    const d = ev.data;
+    if (!d || d.type !== "bs-fill") return;
+    if (activeToken === d.token && activeEntries[d.index]) {
+      performFill(d.index);
+      return;
+    }
+    for (const f of frames()) {
+      if (f.contentWindow) {
+        f.contentWindow.postMessage({ type: "bs-fill", token: d.token, index: d.index }, "*");
+      }
+    }
+  }
+
+  async function performFill(index) {
+    const entry = activeEntries[index];
+    if (!entry) return;
+    const kind = entry.type || kindLogin;
+    const scope = (activeInput && activeInput.form) || document;
+    hidePopup();
+    if (kind === kindCard) {
+      fillCard(entry, scope);
+      return;
+    }
+    if (kind === kindIdentity) {
+      fillIdentity(entry, scope);
+      return;
+    }
+    fillLogin(entry, scope);
+    if (entry.totp) {
+      const code = await BsTotp.code(entry.totp);
+      if (code) {
+        await copyText(code);
+        toast("验证码 " + code + " 已复制");
+      }
+    }
+  }
+
+  function ensurePopup() {
+    if (popup) return;
+    const style = document.createElement("style");
+    style.textContent = popupCSS;
+    document.documentElement.appendChild(style);
+    popup = document.createElement("div");
+    popup.className = "bs-box";
+    (document.body || document.documentElement).appendChild(popup);
+    popup.addEventListener("mousedown", (ev) => ev.preventDefault());
+    popup.addEventListener("click", (ev) => {
+      const row = ev.target.closest?.(".bs-row");
+      if (!row) return;
+      const index = Number(row.dataset.index);
+      hidePopup();
+      dispatchFill(row.dataset.token, index);
+    });
+    popup.addEventListener("mousemove", (ev) => {
+      const row = ev.target.closest?.(".bs-row");
+      if (!row) return;
+      popupSel = Number(row.dataset.index);
+      highlightRows();
+    });
+  }
+
+  function highlightRows() {
+    for (const row of popupRows) {
+      row.classList.toggle("sel", Number(row.dataset.index) === popupSel);
+    }
+  }
+
+  function showPopup(rect, entries, token) {
+    ensurePopup();
+    popup.textContent = "";
+    popupRows = [];
+    popupSel = 0;
+    if (!entries || entries.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "bs-empty";
+      empty.textContent = "无匹配条目";
+      popup.appendChild(empty);
+    } else {
+      entries.forEach((entry, i) => {
+        const row = document.createElement("div");
+        row.className = "bs-row";
+        row.dataset.index = i;
+        row.dataset.token = token;
+        const av = document.createElement("div");
+        av.className = "bs-av";
+        av.textContent = entry.av;
+        av.style.background = entry.color;
+        const texts = document.createElement("div");
+        texts.className = "bs-texts";
+        const t = document.createElement("div");
+        t.className = "bs-title";
+        t.textContent = entry.title;
+        const s = document.createElement("div");
+        s.className = "bs-sub";
+        s.textContent = entry.sub;
+        texts.append(t, s);
+        row.append(av, texts);
+        popup.appendChild(row);
+        popupRows.push(row);
+      });
+      const hint = document.createElement("div");
+      hint.className = "bs-hint";
+      hint.textContent = "↑↓ 选择 · Enter 填充 · Esc 关闭";
+      popup.appendChild(hint);
+    }
+    popup.style.visibility = "hidden";
+    popup.style.display = "block";
+    const boxW = popup.offsetWidth;
+    const boxH = popup.offsetHeight;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let left = rect.left;
+    if (left + boxW > vw - 8) left = Math.max(8, vw - boxW - 8);
+    if (left < 8) left = 8;
+    let top = rect.top + rect.height + 4;
+    if (top + boxH > vh - 8) top = Math.max(8, rect.top - boxH - 4);
+    popup.style.left = left + "px";
+    popup.style.top = top + "px";
+    popup.style.visibility = "visible";
+  }
+
+  function hidePopup() {
+    if (popup) popup.style.display = "none";
+    popupRows = [];
+    popupSel = 0;
+  }
+
+  function moveSel(dir) {
+    if (popupRows.length === 0) return;
+    popupSel = (popupSel + dir + popupRows.length) % popupRows.length;
+    highlightRows();
+    popupRows[popupSel]?.scrollIntoView({ block: "nearest" });
   }
 
   async function onFocusIn(ev) {
     clearTimeout(hideTimer);
     const el = ev.target;
-    if (el === activeInput && items.length > 0) return;
+    if (el === activeInput && activeEntries.length > 0) return;
     const kind = fieldKind(el);
     if (!kind) return;
     activeInput = el;
-    const data = await requestMatches(kind);
+    activeKind = kind;
+    activeToken = crypto.randomUUID();
+    const entries = await requestMatches(kind);
     if (activeInput !== el) return;
-    items = data;
-    if (items.length === 0) {
-      hidePanel();
-      return;
-    }
-    selected = 0;
-    render();
-    showPanel(el);
+    activeEntries = entries;
+    const display = entries.map(toDisplay);
+    const rect = el.getBoundingClientRect();
+    sendFocusUp(rect, activeToken, display);
   }
 
   function onFocusOut() {
     clearTimeout(hideTimer);
-    hideTimer = setTimeout(hidePanel, 180);
+    hideTimer = setTimeout(hidePopup, 180);
+  }
+
+  function onRelayMessage(ev) {
+    relayFocusMessage(ev);
+    relayFillMessage(ev);
   }
 
   function onKeyDown(ev) {
-    if (!panel || panel.classList.contains("hidden") || ev.target !== activeInput) return;
+    if (!popup || popup.style.display === "none" || ev.target !== activeInput) return;
     if (ev.key === "ArrowDown") {
       ev.preventDefault();
-      move(1);
+      moveSel(1);
     } else if (ev.key === "ArrowUp") {
       ev.preventDefault();
-      move(-1);
-    } else if (ev.key === "Enter" && items.length > 0) {
+      moveSel(-1);
+    } else if (ev.key === "Enter" && popupRows.length > 0) {
       ev.preventDefault();
-      choose(selected);
+      const index = popupSel;
+      hidePopup();
+      dispatchFill(activeToken, index);
     } else if (ev.key === "Escape") {
-      hidePanel();
+      hidePopup();
     }
   }
 
+  window.addEventListener("message", onRelayMessage);
   document.addEventListener("focusin", onFocusIn, true);
   document.addEventListener("focusout", onFocusOut, true);
   document.addEventListener("keydown", onKeyDown, true);
-  window.addEventListener("scroll", hidePanel, true);
-  window.addEventListener("resize", hidePanel);
+  window.addEventListener("scroll", hidePopup, true);
+  window.addEventListener("resize", hidePopup);
 })();
