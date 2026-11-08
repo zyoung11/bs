@@ -19,6 +19,7 @@ Chrome and Firefox against it. Data is end-to-end encrypted.
   copies it to the clipboard.
 - Import: bookmarks from a browser HTML export, passwords from a Chrome or
   Firefox CSV export. Import replaces the log and rebuilds everywhere.
+- Export: bookmarks to a Netscape HTML file and logins to a Chrome CSV.
 
 ### Setup
 

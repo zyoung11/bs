@@ -153,3 +153,56 @@ function collectImportOps(item, parentSync, index, ops) {
     item.children.forEach((child, i) => collectImportOps(child, id, i, ops));
   }
 }
+
+// buildBookmarksHtml serializes nested nodes into a Netscape bookmark
+// export that parseBookmarksHtml and browsers can read back.
+function buildBookmarksHtml(items) {
+  const parts = [
+    "<!DOCTYPE NETSCAPE-Bookmark-file-1>",
+    '<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">',
+    "<TITLE>Bookmarks</TITLE>",
+    "<H1>Bookmarks</H1>",
+    "<DL><p>",
+  ];
+  for (const item of items) parts.push(buildBookmarkItem(item, 1));
+  parts.push("</DL><p>");
+  return parts.join("\n") + "\n";
+}
+
+// buildBookmarkItem serializes one node with one indent level per depth.
+function buildBookmarkItem(item, depth) {
+  const pad = "  ".repeat(depth);
+  if (item.type === "folder") {
+    const kids = (item.children ?? []).map((child) => buildBookmarkItem(child, depth + 1));
+    return (
+      pad + "<DT><H3>" + escapeHtml(item.title ?? "") + "</H3>\n" +
+      pad + "<DL><p>\n" + kids.join("\n") + "\n" +
+      pad + "</DL><p>"
+    );
+  }
+  return pad + '<DT><A HREF="' + escapeAttr(item.url ?? "") + '">' + escapeHtml(item.title ?? "") + "</A>";
+}
+
+function escapeHtml(text) {
+  return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function escapeAttr(text) {
+  return escapeHtml(text).replace(/"/g, "&quot;");
+}
+
+// buildPasswordsCsv serializes login entries into a Chrome compatible
+// password CSV with a name, url, username, password header.
+function buildPasswordsCsv(entries) {
+  const rows = [["name", "url", "username", "password"]];
+  for (const entry of entries) {
+    rows.push([entry.name ?? "", entry.url ?? "", entry.username ?? "", entry.password ?? ""]);
+  }
+  return rows.map((row) => row.map(csvField).join(",")).join("\n") + "\n";
+}
+
+function csvField(value) {
+  const text = String(value);
+  if (/[",\n\r]/.test(text)) return '"' + text.replace(/"/g, '""') + '"';
+  return text;
+}

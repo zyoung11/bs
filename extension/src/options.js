@@ -39,10 +39,6 @@ async function render() {
     $("reset").classList.remove("hidden");
     $("reRegister").classList.add("hidden");
     $("setupNote").textContent = "已连接服务器。地址和主密码已锁定，更改请先重置。";
-    $("status").textContent =
-      "已连接 " + st.url +
-      " · 书签 " + st.progress.bookmarks.seq + " 条操作" +
-      " · 密码 " + st.passwordCount + " 条";
     return;
   }
   $("url").disabled = false;
@@ -50,7 +46,6 @@ async function render() {
   $("master").placeholder = "派生加密密钥和认证令牌";
   $("setup").classList.remove("hidden");
   $("reset").classList.add("hidden");
-  $("status").textContent = "未配置。填写表单连接服务器。";
   await updateTokenVisibility();
 }
 
@@ -77,6 +72,31 @@ async function updateTokenVisibility() {
   $("reRegister").classList.add("hidden");
   $("setupNote").textContent = "服务器未注册，首次连接需要 config token。";
 }
+
+// applyTheme sets the page theme and refreshes the toggle icon.
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  const toggle = document.getElementById("theme-toggle");
+  if (toggle) toggle.classList.toggle("is-light", theme === "light");
+}
+
+// changeTheme applies a theme with a view transition when motion is allowed.
+function changeTheme(theme) {
+  const calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (document.startViewTransition && !calm) {
+    document.startViewTransition(() => applyTheme(theme));
+  } else {
+    applyTheme(theme);
+  }
+}
+
+const savedTheme = localStorage.getItem("theme");
+applyTheme(savedTheme === "light" || savedTheme === "dark" ? savedTheme : "dark");
+$("theme-toggle").addEventListener("click", () => {
+  const theme = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+  changeTheme(theme);
+  localStorage.setItem("theme", theme);
+});
 
 $("setup").addEventListener("click", async () => {
   try {
@@ -137,21 +157,17 @@ $("csvFile").addEventListener("change", async () => {
 });
 
 // renderNever lists the never-save sites, each with a remove button.
+// The panel hides entirely while the list is empty.
 async function renderNever() {
   const hosts = await send({ type: "never-list" });
   const box = $("neverList");
   box.textContent = "";
-  if (hosts.length === 0) {
-    const empty = document.createElement("p");
-    empty.className = "note";
-    empty.textContent = "空。保存弹窗选「不再提示」的站点列在这里。";
-    box.appendChild(empty);
-    return;
-  }
+  $("neverPanel").classList.toggle("hidden", hosts.length === 0);
   for (const host of hosts.sort()) {
     const row = document.createElement("div");
-    row.className = "field-row never-row";
-    const name = document.createElement("span");
+    row.className = "row";
+    const name = document.createElement("div");
+    name.className = "row-main";
     name.textContent = host;
     const btn = document.createElement("button");
     btn.className = "link-btn";
@@ -165,7 +181,38 @@ async function renderNever() {
   }
 }
 
+// downloadText saves text as a file through a temporary blob link.
+function downloadText(filename, text, mime) {
+  const blob = new Blob([text], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+$("exportHtml").addEventListener("click", async () => {
+  try {
+    const html = await send({ type: "export-bookmarks" });
+    downloadText("bookmarks.html", html, "text/html");
+    say("exportHtmlMsg", "已导出 bookmarks.html", true);
+  } catch (e) {
+    say("exportHtmlMsg", e.message, false);
+  }
+});
+
+$("exportCsv").addEventListener("click", async () => {
+  try {
+    const csv = await send({ type: "export-passwords" });
+    downloadText("passwords.csv", csv, "text/csv");
+    say("exportCsvMsg", "已导出 passwords.csv", true);
+  } catch (e) {
+    say("exportCsvMsg", e.message, false);
+  }
+});
+
 render().catch((e) => {
-  $("status").textContent = "状态读取失败：" + e.message;
+  say("setupMsg", "状态读取失败：" + e.message, false);
 });
 renderNever().catch(() => {});

@@ -4,7 +4,7 @@ if (typeof importScripts === "function") {
   importScripts("state.js", "crypto.js", "api.js", "import.js", "totp.js", "engine.js");
 }
 
-init().catch((e) => console.error("bs init failed:", e));
+const ready = init().catch((e) => console.error("bs init failed:", e));
 
 api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   handleRequest(msg, sender)
@@ -13,7 +13,8 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return true;
 });
 
-api.alarms.onAlarm.addListener((alarm) => {
+api.alarms.onAlarm.addListener(async (alarm) => {
+  await ready;
   if (alarm.name !== "bs-sync") return;
   if (!config) return;
   if (wsDown) connect();
@@ -22,6 +23,7 @@ api.alarms.onAlarm.addListener((alarm) => {
 
 // handleRequest routes UI messages to the engine.
 async function handleRequest(msg, sender) {
+  await ready;
   switch (msg.type) {
     case "save-show": {
       const tab = sender && sender.tab;
@@ -65,6 +67,10 @@ async function handleRequest(msg, sender) {
       return Object.keys(never);
     case "never-remove":
       return removeNever(msg.host);
+    case "export-bookmarks":
+      return exportBookmarks();
+    case "export-passwords":
+      return exportPasswords();
     default:
       throw new Error("unknown request " + msg.type);
   }

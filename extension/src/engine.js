@@ -624,3 +624,58 @@ async function changePassword(action, entry) {
   await Store.set("bs_passwords", passwords);
   return { ok: true };
 }
+
+// exportNodes flattens one local bookmark subtree into nested nodes.
+async function exportNodes(localId) {
+  const kids = await api.bookmarks.getChildren(localId);
+  const out = [];
+  for (const kid of kids) {
+    if (kid.url) {
+      out.push({ type: "bookmark", title: kid.title, url: kid.url });
+      continue;
+    }
+    out.push({ type: "folder", title: kid.title, children: await exportNodes(kid.id) });
+  }
+  return out;
+}
+
+// exportBookmarks returns a Netscape HTML export of the two sync roots
+// under the standard Chrome root folder names so import maps them back.
+// Roots resolve from the live bookmark tree on every call, so a cold
+// background start or a stale id map cannot yield an empty export.
+// It throws when no root can be found or when both roots hold no items.
+async function exportBookmarks() {
+  const tree = await api.bookmarks.getTree();
+  const top = tree[0] ?? { children: [] };
+  const names = { toolbar: "Bookmarks Bar", unfiled: "Other Bookmarks" };
+  const items = [];
+  let found = 0;
+  for (const role of RoleNames) {
+    const localRoot = (top.children ?? []).find((child) => RoleByLocalId[child.id] === role);
+    if (!localRoot) continue;
+    found++;
+    items.push({
+      type: "folder",
+      title: names[role] ?? role,
+      children: await exportNodes(localRoot.id),
+    });
+  }
+  if (found === 0) throw new Error("未找到书签同步根");
+  if (items.every((item) => item.children.length === 0)) throw new Error("同步根下无书签");
+  return buildBookmarksHtml(items);
+}
+
+// exportPasswords returns a Chrome compatible CSV of the login entries.
+// Cards and identities are left out, matching browser CSV exports.
+// Entries without a name fall back to their host like saved logins do.
+function exportPasswords() {
+  const list = Object.values(passwords)
+    .filter((entry) => (entry.type || "login") === "login")
+    .map((entry) => ({
+      name: entry.name || hostOf(entry.url) || entry.username,
+      url: entry.url,
+      username: entry.username,
+      password: entry.password,
+    }));
+  return buildPasswordsCsv(list);
+}

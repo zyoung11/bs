@@ -1,12 +1,14 @@
 <!DOCTYPE html>
-<html lang="zh" data-theme="dark">
+<html lang="zh">
 <head>
 <meta charset="utf-8">
+<script>try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark'){document.documentElement.dataset.theme=t;}}catch(e){}</script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>bs sync</title>
 <style>
   :root {
-    --seam:         #100f0e;
+    --seam:         #0a0908;
+    --page:         #161513;
     --bg:           #161513;
     --surface-1:    #201e1c;
     --surface-2:    #2a2724;
@@ -20,20 +22,44 @@
     --accent:       #ff5c00;
     --accent-soft:  rgba(255, 92, 0, 0.13);
     --accent-line:  rgba(255, 92, 0, 0.50);
+    --mark-bg:      #ff5c00;
+    --mark-fg:      #000000;
     --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
             "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
     --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas,
             "Liberation Mono", "Noto Sans Mono CJK SC", monospace;
     --t-state:  0.12s;
+    --t-open:   0.18s;
+    --t-reflow: 0.24s;
     --ease:     cubic-bezier(0.2, 0, 0, 1);
     color-scheme: dark;
   }
 
+  [data-theme="light"] {
+    --seam:         #cfcec9;
+    --page:         #f2f2f0;
+    --bg:           #f2f2f0;
+    --surface-1:    #eaeae6;
+    --surface-2:    #e0e0da;
+    --btn-bg:       #e8e7e2;
+    --line:        rgba(17, 17, 16, 0.09);
+    --line-strong: rgba(17, 17, 16, 0.20);
+    --text:         #111110;
+    --text-2:       #6b6b68;
+    --text-3:       #a3a3a0;
+    --text-4:       #b5b5b2;
+    --accent:       #c2540f;
+    --accent-soft:  rgba(194, 84, 15, 0.12);
+    --accent-line:  rgba(194, 84, 15, 0.45);
+    --mark-bg:      #f3c78e;
+    --mark-fg:      #111110;
+    color-scheme: light;
+  }
+
   * { box-sizing: border-box; }
 
-  .table-wrap::-webkit-scrollbar { height: 6px; }
-  .table-wrap::-webkit-scrollbar-thumb { background: var(--line-strong); }
-  .table-wrap::-webkit-scrollbar-track { background: var(--surface-2); }
+  ::selection { background: var(--mark-bg); color: var(--mark-fg); }
+  ::-moz-selection { background: var(--mark-bg); color: var(--mark-fg); }
 
   body {
     margin: 0;
@@ -57,20 +83,15 @@
   .panel {
     background: var(--bg);
     padding: 18px 20px;
-    border: none;
-    border-radius: 0;
-    box-shadow: none;
+    border-top: 2px solid var(--line);
   }
 
-  .label {
-    font-family: var(--mono);
-    font-size: 11px;
-    font-weight: 400;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--text-3);
-    margin: 0 0 12px;
-    display: block;
+  .title-panel {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    border-top: none;
   }
 
   h1 {
@@ -81,52 +102,87 @@
 
   .sub {
     margin: 4px 0 0;
-    color: var(--text-3);
+    color: var(--text-2);
     font-family: var(--mono);
     font-size: 11px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
   }
 
-  .field-row {
-    padding: 6px 0 4px;
+  .panel-head {
+    padding-bottom: 12px;
+    margin-bottom: 4px;
     border-bottom: 1px solid var(--line);
-    transition: background var(--t-state) var(--ease),
-                box-shadow var(--t-state) var(--ease);
   }
 
-  .field-row:last-of-type { border-bottom: none; }
-
-  .field-row:focus-within {
-    background: var(--surface-1);
-    box-shadow: inset 0 -2px 0 var(--accent);
-  }
-
-  .field-row label {
-    display: block;
+  .label {
     font-family: var(--mono);
     font-size: 11px;
+    font-weight: 400;
     letter-spacing: 0.16em;
     text-transform: uppercase;
-    color: var(--text-3);
+    color: var(--text-2);
+    margin: 0 0 2px;
+    display: block;
   }
 
-  .field-row input,
-  .field-row select {
+  .head-sub {
+    margin: 2px 0 0;
+    font: 400 12px/1.5 var(--sans);
+    color: var(--text-2);
+  }
+
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .row:last-child { border-bottom: none; }
+
+  .row-label {
+    flex: 0 0 120px;
+    font: 400 13px/1.5 var(--sans);
+    color: var(--text-2);
+  }
+
+  .row-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .row-main.inline {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+
+  .row-main:focus-within {
+    background: var(--surface-1);
+    box-shadow: inset 0 -2px 0 var(--accent);
+    transition: background var(--t-state) var(--ease);
+  }
+
+  .field {
     width: 100%;
     font: 400 13px/1.6 var(--sans);
     color: var(--text);
     background: transparent;
     border: none;
-    padding: 6px 0;
+    padding: 8px 4px;
     outline: none;
   }
 
-  .field-row input::placeholder { color: var(--text-4); }
+  .field::placeholder { color: var(--text-4); }
 
-  .field-row input:disabled,
-  .field-row select:disabled {
-    color: var(--text-3);
+  .field:disabled {
+    color: var(--text-4);
     cursor: not-allowed;
     opacity: 0.7;
   }
@@ -134,40 +190,28 @@
   input[type="file"] {
     font-family: var(--mono);
     font-size: 11px;
-    color: var(--text-3);
+    color: var(--text-2);
     letter-spacing: 0.08em;
-    padding: 8px 0;
-    width: 100%;
+    padding: 0;
+    width: auto;
   }
 
   input[type="file"]::file-selector-button {
-    font: 400 11px/1 var(--mono);
+    font: 400 13px/1 var(--mono);
     letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--text-2);
+    color: var(--text);
     background: var(--btn-bg);
     border: none;
     border-radius: 0;
-    padding: 8px 14px;
+    padding: 11px 18px;
     margin-right: 12px;
     cursor: pointer;
     transition: background var(--t-state) var(--ease), color var(--t-state) var(--ease);
   }
 
   input[type="file"]::file-selector-button:hover {
-    background: var(--surface-1);
+    background: var(--surface-2);
     color: var(--text);
-  }
-
-  :focus-visible {
-    outline: 1px solid var(--accent);
-    outline-offset: 2px;
-  }
-
-  .row-actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 12px;
   }
 
   .btn {
@@ -179,15 +223,11 @@
     border: none;
     border-radius: 0;
     padding: 11px 18px;
-    margin-top: 12px;
     cursor: pointer;
     transition: background var(--t-state) var(--ease), color var(--t-state) var(--ease);
   }
 
-  .row-actions .btn { margin-top: 0; }
-
   .btn:hover { background: var(--surface-2); color: var(--text); }
-
   .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
   .btn-primary {
@@ -198,40 +238,10 @@
 
   .btn-primary:hover { background: var(--accent); filter: brightness(1.08); }
 
-  .msg {
-    min-height: 16px;
-    margin-top: 8px;
-    font-family: var(--mono);
-    font-size: 11px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-4);
-    transition: color var(--t-state) var(--ease);
-  }
-
-  .msg.ok { color: var(--text-2); }
-  .msg.err { color: var(--accent); }
-
-  #status {
-    font-family: var(--mono);
-    font-size: 13px;
-    color: var(--text-2);
-    line-height: 1.7;
-  }
-
-  .hidden { display: none; }
-
-  .never-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 12px;
-  }
-
   .link-btn {
     background: none;
     border: none;
-    padding: 6px 0 0;
+    padding: 4px 0;
     color: var(--accent);
     font: 400 11px/1.6 var(--mono);
     letter-spacing: 0.06em;
@@ -242,21 +252,86 @@
 
   .link-btn:hover { filter: brightness(1.15); }
 
-  .spacer { height: 2px; }
-
-  .note {
-    margin: 8px 0 0;
+  .msg {
+    min-height: 16px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
     color: var(--text-3);
+    transition: color var(--t-state) var(--ease);
+  }
+
+  .msg.ok { color: var(--text-2); }
+  .msg.err { color: var(--accent); }
+
+  .row-side {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .row-note {
+    color: var(--text-2);
     font-family: var(--mono);
     font-size: 11px;
     letter-spacing: 0.04em;
     line-height: 1.6;
   }
 
+  .theme-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 34px;
+    padding: 0;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--text-2);
+    cursor: pointer;
+    transition: background var(--t-state) var(--ease), color var(--t-state) var(--ease);
+  }
+
+  .theme-toggle:hover { background: var(--accent-soft); color: var(--accent); }
+  .theme-toggle .icon-sun { display: none; }
+  .theme-toggle.is-light .icon-sun { display: inline-flex; }
+  .theme-toggle.is-light .icon-moon { display: none; }
+
+  .hidden { display: none; }
+
+  :focus-visible {
+    outline: 1px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  [data-theme="light"] .btn-primary {
+    background: var(--btn-bg);
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  [data-theme="light"] .btn-primary:hover {
+    background: var(--surface-2);
+    filter: none;
+  }
+
+  [data-theme="light"] .link-btn:hover {
+    filter: none;
+    text-decoration-thickness: 2px;
+  }
+
   @media (prefers-contrast: more) {
     :root {
       --line:        rgba(244, 240, 233, 0.34);
       --line-strong: rgba(244, 240, 233, 0.58);
+    }
+
+    [data-theme="light"] {
+      --line:        rgba(17, 17, 16, 0.24);
+      --line-strong: rgba(17, 17, 16, 0.42);
     }
   }
 
@@ -265,66 +340,96 @@
   }
 
   @media (max-width: 479px) {
-    .field-row input,
-    .field-row select { font-size: 16px; }
     .panel { padding: 14px 14px; }
+    .row { flex-direction: column; align-items: stretch; gap: 4px; }
+    .row-label { flex: none; }
+    .field, input[type="file"] { font-size: 16px; }
+    .row-main.inline { justify-content: flex-start; }
   }
 </style>
 </head>
 <body>
   <div class="content">
 
-    <div class="panel">
-      <h1>bs sync</h1>
-      <p class="sub">bookmark &amp; password sync</p>
+    <div class="panel title-panel">
+      <div>
+        <h1>bs sync</h1>
+        <p class="sub">bookmark &amp; password sync</p>
+      </div>
+      <button id="theme-toggle" class="theme-toggle" aria-label="切换亮暗主题" title="切换亮暗主题">
+        <svg class="icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"></path></svg>
+        <svg class="icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
+      </button>
     </div>
 
     <div class="panel">
-      <span class="label">Status</span>
-      <div id="status">加载中</div>
+      <div class="panel-head">
+        <span class="label">Setup</span>
+        <div class="head-sub">初始化连接</div>
+      </div>
+      <div class="row">
+        <label class="row-label" for="url">服务器地址</label>
+        <div class="row-main">
+          <input class="field" id="url" placeholder="http://192.168.100.1:8000" autocomplete="off">
+        </div>
+      </div>
+      <div class="row">
+        <label class="row-label" for="master">主密码</label>
+        <div class="row-main">
+          <input class="field" id="master" type="password" placeholder="派生加密密钥和认证令牌" autocomplete="new-password">
+        </div>
+      </div>
+      <div class="row" id="tokenRow">
+        <label class="row-label" for="configToken">Config Token</label>
+        <div class="row-main">
+          <input class="field" id="configToken" type="password" placeholder="仅首次注册需要，bs 启动时打印" autocomplete="off">
+        </div>
+      </div>
+      <div class="row">
+        <div class="row-side">
+          <div class="row-note" id="setupNote"></div>
+          <button id="reRegister" class="link-btn hidden">换主密码？用 config token 重新注册</button>
+        </div>
+        <div class="row-main inline">
+          <div id="setupMsg" class="msg"></div>
+          <button id="setup" class="btn btn-primary">保存并连接</button>
+          <button id="reset" class="btn hidden">重置</button>
+        </div>
+      </div>
     </div>
 
     <div class="panel">
-      <span class="label">Setup · 初始化</span>
-      <div class="field-row">
-        <label for="url">服务器地址</label>
-        <input id="url" placeholder="http://192.168.100.1:7878" autocomplete="off">
+      <div class="row">
+        <label class="row-label" for="htmlFile">导入书签</label>
+        <div class="row-main inline">
+          <div id="htmlMsg" class="msg"></div>
+          <input id="htmlFile" type="file" accept=".html,.htm">
+        </div>
       </div>
-      <div class="field-row">
-        <label for="master">主密码</label>
-        <input id="master" type="password" placeholder="派生加密密钥和认证令牌" autocomplete="new-password">
+      <div class="row">
+        <label class="row-label" for="csvFile">导入密码</label>
+        <div class="row-main inline">
+          <div id="csvMsg" class="msg"></div>
+          <input id="csvFile" type="file" accept=".csv">
+        </div>
       </div>
-      <div class="field-row" id="tokenRow">
-        <label for="configToken">Config Token</label>
-        <input id="configToken" type="password" placeholder="仅首次注册需要，bs 启动时打印" autocomplete="off">
+      <div class="row">
+        <span class="row-label">导出书签</span>
+        <div class="row-main inline">
+          <div id="exportHtmlMsg" class="msg"></div>
+          <button id="exportHtml" class="btn">导出 HTML</button>
+        </div>
       </div>
-      <div class="row-actions">
-        <button id="setup" class="btn btn-primary">保存并连接</button>
-        <button id="reset" class="btn hidden">重置</button>
+      <div class="row">
+        <span class="row-label">导出密码</span>
+        <div class="row-main inline">
+          <div id="exportCsvMsg" class="msg"></div>
+          <button id="exportCsv" class="btn">导出 CSV</button>
+        </div>
       </div>
-      <div id="setupMsg" class="msg"></div>
-      <p class="note" id="setupNote"></p>
-      <button id="reRegister" class="link-btn hidden">换主密码？用 config token 重新注册</button>
     </div>
 
-    <div class="panel">
-      <span class="label">Import Bookmarks · 书签</span>
-      <div class="field-row">
-        <input id="htmlFile" type="file" accept=".html,.htm">
-      </div>
-      <div id="htmlMsg" class="msg"></div>
-    </div>
-
-    <div class="panel">
-      <span class="label">Import Passwords · 密码</span>
-      <div class="field-row">
-        <input id="csvFile" type="file" accept=".csv">
-      </div>
-      <div id="csvMsg" class="msg"></div>
-    </div>
-
-    <div class="panel">
-      <span class="label">Never Save · 不再提示</span>
+    <div class="panel" id="neverPanel">
       <div id="neverList"></div>
     </div>
 
